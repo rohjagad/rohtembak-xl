@@ -33,7 +33,7 @@ Web UI untuk mengelola akun XL / paket XL (beli paket, info paket, riwayat, pemb
 ## Quick start (Docker, production)
 
 ```bash
-git clone https://github.com/rohcuan/rohtembak-xl.git
+git clone https://github.com/rohjagad/rohtembak-xl.git
 cd rohtembak-xl
 docker compose up -d
 ```

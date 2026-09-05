@@ -18,7 +18,7 @@ set -euo pipefail
 #   ROHTEMBAK_ENV_FILE   optional .env to copy over     (path inside container)
 # =============================================================================
 
-REPO_URL="https://github.com/rohcuan/rohtembak-xl"
+REPO_URL="https://github.com/rohjagad/rohtembak-xl"
 REPO_BRANCH="main"
 INSTALL_DIR="${INSTALL_DIR:-/opt/rohtembak}"
 APP_PORT="${APP_PORT:-8000}"
