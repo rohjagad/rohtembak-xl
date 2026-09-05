@@ -20,7 +20,7 @@
     padding: 10px 14px; border: none; border-bottom: 1px solid #f0f0f0;
     font-size: 14px;
   }
-  td:first-child, tr:hover td:first-child {
+  tbody td:first-child, tbody tr:hover td:first-child {
     background: #e5e7eb;
     border-bottom: 1px solid #e5e7eb;
   }
@@ -31,6 +31,14 @@
     text-transform: uppercase; letter-spacing: .5px;
     margin-right: 12px; flex-shrink: 0;
   }
+  tr[hidden] { display: none !important; }
+  tfoot tr { border: none; background: none; box-shadow: none; border-radius: 0; margin-bottom: 6px; padding: 0; }
+  tfoot td { display: flex; justify-content: center; align-items: center; padding: 8px 14px 2px; }
+  tfoot .btn { flex: 0 1 auto; background: transparent; border: 1px solid #ddd; color: #666; padding: 8px 18px; }
+  .edit-row td { display: block; padding: 12px 14px; }
+  .edit-row td > div { width: 100%; }
+  .edit-row td label { width: 100%; }
+  .edit-row td input { width: 100% !important; box-sizing: border-box; }
 }
 </style>
 {% endblock %}
@@ -55,29 +63,29 @@
 
 {% for sec in rows %}
 <div class="card">
-    <h2 style="font-size:16px;margin-bottom:4px;">{{ sec.label }}</h2>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
-        <form method="POST" action="/prices-xl/family" class="price-form" style="flex-wrap:wrap;">
+    <h2 style="font-size:16px;margin-bottom:14px;">
+        {{ sec.label }}
+        <button type="button" class="btn btn-sm btn-outline label-edit-toggle" data-key="{{ sec.key }}" style="vertical-align:middle;margin-left:8px;padding:2px 6px;line-height:1;" title="Edit label / lihat family code">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+        </button>
+    </h2>
+    <div class="adv-wrap" id="adv-{{ sec.key }}" hidden style="margin-bottom:8px;">
+        <form method="POST" action="/prices-xl/family" class="price-form" style="flex-direction:column;align-items:stretch;gap:8px;max-width:300px;">
             <input type="hidden" name="family_key" value="{{ sec.key }}">
             <input type="hidden" name="url_prefix" value="{{ family_prefixes[sec.key] if family_prefixes else '' }}">
             <input type="hidden" name="option_codes" value="{{ family_options[sec.key] if family_options else '' }}">
-            <input type="hidden" name="qris_decoy" value="{% if family_decoys and family_decoys[sec.key] %}1{% else %}0{% endif %}">
-            <input type="text" name="label" value="{{ sec.label }}" class="form-control price-input" style="width:190px;" title="Label tampilan">
-            <input type="text" name="family_code" value="{{ family_codes[sec.key] if family_codes else '' }}" class="form-control price-input" style="width:250px;" title="Family code (UUID katalog API XL)" placeholder="Family code">
-            <button type="submit" class="btn btn-sm btn-outline">Simpan</button>
-        </form>
-        <button type="button" class="btn btn-sm btn-outline adv-toggle" data-key="{{ sec.key }}">Detail &#9662;</button>
-    </div>
-    <div class="adv-wrap" id="adv-{{ sec.key }}" hidden>
-        <form method="POST" action="/prices-xl/family" class="price-form" style="flex-wrap:wrap;margin:0 0 8px;">
-            <input type="hidden" name="family_key" value="{{ sec.key }}">
-            <input type="hidden" name="label" value="{{ sec.label }}">
-            <input type="hidden" name="family_code" value="{{ family_codes[sec.key] if family_codes else '' }}">
-            <input type="text" name="url_prefix" value="{{ family_prefixes[sec.key] if family_prefixes else '' }}" class="form-control price-input" style="width:120px;" title="Prefix URL detail/checkout" placeholder="url-prefix">
-            <input type="hidden" name="option_codes" value="{{ family_options[sec.key] if family_options else '' }}">
-            <label class="price-hint" style="display:flex;align-items:center;gap:4px;"><input type="checkbox" name="qris_decoy" value="1" {% if family_decoys and family_decoys[sec.key] %}checked{% endif %}>QRIS decoy</label>
-            <button type="submit" class="btn btn-sm btn-outline">Simpan Detail</button>
-            <a href="/prices-xl/family/toggle?key={{ sec.key }}" class="price-hint">({{ 'sembunyikan' if family_actives and family_actives[sec.key] else 'tampilkan' }} di Beli Paket)</a>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+                <span class="price-hint">Label tampilan</span>
+                <input type="text" name="label" value="{{ sec.label }}" class="form-control price-input" style="width:100%;" title="Label tampilan">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+                <span class="price-hint">Family code (tidak bisa diedit)</span>
+                <input type="text" value="{{ family_codes[sec.key] if family_codes else '' }}" class="form-control price-input" style="width:100%;" title="Family code (UUID katalog API XL)" placeholder="Family code" disabled>
+                <input type="hidden" name="family_code" value="{{ family_codes[sec.key] if family_codes else '' }}">
+            </label>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" class="btn btn-sm btn-outline">Simpan</button>
+            </div>
         </form>
     </div>
     {% if sec.pkgs and sec.pkgs|length > 0 %}
@@ -114,6 +122,24 @@
                         <label style="display:flex;flex-direction:column;gap:4px;">
                             <span class="price-hint">Rewrite Price:</span>
                             <input type="number" name="rewrite_price" value="{{ it.rewrite if it.rewrite is not none else '' }}" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:4px;">
+                            <span class="price-hint">Decoy QRIS:</span>
+                            <select name="decoy_qris" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
+                                <option value="" {% if not it.decoy_qris or it.decoy_qris in ('none', 'default') %}selected{% endif %}>Tanpa decoy</option>
+                                {% for dn in decoy_names_qris %}
+                                <option value="{{ dn.name }}" {% if it.decoy_qris == dn.name %}selected{% endif %}>{{ dn.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:4px;">
+                            <span class="price-hint">Decoy Pulsa:</span>
+                            <select name="decoy_pulsa" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
+                                <option value="" {% if not it.decoy_pulsa or it.decoy_pulsa in ('none', 'default') %}selected{% endif %}>Tanpa decoy</option>
+                                {% for dn in decoy_names_pulsa %}
+                                <option value="{{ dn.name }}" {% if it.decoy_pulsa == dn.name %}selected{% endif %}>{{ dn.label }}</option>
+                                {% endfor %}
+                            </select>
                         </label>
                         <div style="display:flex;gap:8px;margin-top:4px;">
                             <form method="POST" action="/prices-xl/set" class="price-form" id="price-form-{{ sec.key }}-{{ it.number }}">
@@ -174,7 +200,6 @@
     <form method="POST" action="/prices-xl/family" class="price-form" style="flex-wrap:wrap;">
         <input type="text" name="label" class="form-control price-input" style="width:180px;" placeholder="Label tampilan" required>
         <input type="text" name="family_code" class="form-control price-input" style="width:250px;" placeholder="Family code (UUID)" required>
-        <label class="price-hint" style="display:flex;align-items:center;gap:4px;"><input type="checkbox" name="qris_decoy" value="1">QRIS decoy</label>
         <button type="submit" class="btn btn-sm btn-primary">Tambah</button>
     </form>
     <p class="price-hint" style="margin:8px 0 0;">Group baru otomatis dinamai <span style="color:#15803d;font-weight:600;">{{ next_family_key }}</span></p>
@@ -193,7 +218,7 @@
 
 <script>
 (function () {
-  document.querySelectorAll(".adv-toggle").forEach(function (btn) {
+  document.querySelectorAll(".label-edit-toggle").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var panel = document.getElementById("adv-" + btn.dataset.key);
       if (panel) panel.hidden = !panel.hidden;

@@ -151,14 +151,10 @@ var CACHE_NAME = 'beli-paket';
 var CACHE_TTL = 570;
 var CACHE_META_TTL = 570;
 var XL_ID = "{{ active_xl.phone_number if active_xl else '' }}";
-var QRIS_DECOY_PRICE = {{ qris_decoy_price | default(0) }};
 var CACHE_META = new Request('/beli-paket-cache/' + XL_ID + '/meta');
 // Config container dari server: 1 family aktif = 1 group kartu
 var SECTIONS = {{ sections | tojson }};
 var URL_PREFIX = {{ url_prefixes | tojson }};
-var DECOY_FAMS = Object.keys(URL_PREFIX).filter(function(k) {
-  return SECTIONS.some(function(s) { return s.fam === k && s.key !== k; });
-});
 var BOX_KEYS = SECTIONS.map(function(s) { return s.key; });
 var FAM_PARAM_FROM_BOX = {};
 SECTIONS.forEach(function(s) { FAM_PARAM_FROM_BOX[s.key] = s.fam; });
@@ -180,9 +176,7 @@ function cardHtmlFor(key, it, i) {
   var name = isAlt ? escHtml(it.option_name || it.name || it.label) : escHtml(it.label);
   var size = it.size ? '<div class="pkg-size">' + escHtml(it.size) + '</div>' : '';
   var price = Number(it.price) || 0;
-  if (DECOY_FAMS.indexOf(fam) !== -1 && key.slice(-5) === '-qris') price += QRIS_DECOY_PRICE;
-  var via = (DECOY_FAMS.indexOf(fam) !== -1) ? (key.slice(-5) === '-qris' ? 'qris' : 'pulsa') : '';
-  return '<a class="pkg-card' + muted + '" href="/user/xl/beli-paket/' + prefix + '-' + it.number + '/detail' + (via ? '?via=' + via : '') + '">' +
+  return '<a class="pkg-card' + muted + '" href="/user/xl/beli-paket/' + prefix + '-' + it.number + '/detail">' +
     '<div class="pkg-number">' + head + '</div>' +
     '<div class="pkg-name">' + name + '</div>' + size +
     '<div class="pkg-price">' + fmtRp(price) + '</div>' +

@@ -187,8 +187,14 @@ function closePendingModal() {
         <h3>Ringkasan transaksi</h3>
         <div class="saldo-row">
           <span class="k">Harga paket XL</span>
-          <span class="v">{{ price|rupiah }} IDR</span>
+          <span class="v">{{ base_price|rupiah }} IDR</span>
         </div>
+        {% if decoy_extra > 0 %}
+        <div class="saldo-row">
+          <span class="k">Biaya decoy{% if decoy_name %} ({{ decoy_name }}){% endif %}</span>
+          <span class="v">{{ decoy_extra|rupiah }} IDR</span>
+        </div>
+        {% endif %}
         <div class="saldo-row">
           <span class="k">Biaya saldo panel</span>
           <span class="v">{{ fee|rupiah }} IDR</span>
@@ -202,7 +208,7 @@ function closePendingModal() {
         {% endif %}
         {% if decoy_pulsa_notice %}
         <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:.8rem;line-height:1.5;">
-          <strong>Penting:</strong> Pastikan pulsa tidak lebih dari 800k, agar tidak terpotong sejumlah 800k.
+          <strong>Penting:</strong> Pastikan pulsa tidak lebih dari {{ decoy_threshold|rupiah if decoy_threshold else '800k' }}, agar tidak terpotong sejumlah {{ decoy_threshold|rupiah if decoy_threshold else '800k' }}.
         </div>
         {% endif %}
       </div>

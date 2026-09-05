@@ -109,8 +109,6 @@ function toggleCollapse(id) {
 window.BANNER_SSE = true;
 var DETAIL_FAMILY = "{{ family }}";
 var DETAIL_N = {{ n }};
-var DETAIL_VIA = "{{ via or '' }}";
-var QRIS_DECOY_PRICE = {{ qris_decoy_price | default(0) }};
 var DETAIL_CACHE_NAME = 'beli-paket-detail';
 var DETAIL_CACHE_TTL = 570;
 var DETAIL_CACHE_META_TTL = 570;
@@ -183,12 +181,11 @@ function benefitCards(benefits) {
 }
 function detailHtml(d) {
   var h = '<div class="card" style="padding:0;overflow:hidden;">';
-  var viaLabel = (DETAIL_VIA === 'qris') ? ' (via QRIS)' : (DETAIL_VIA === 'pulsa') ? ' (via Pulsa)' : '';
-  var shownPrice = (DETAIL_VIA === 'qris') ? Number(d.price) + QRIS_DECOY_PRICE : Number(d.price);
+  var shownPrice = Number(d.price) || 0;
 
   h += '<div style="padding:20px 24px;">';
   h += '<div style="font-size:.75rem;color:#999;margin-bottom:10px;">' + (d.number ? '#' + d.number + ' &middot; ' : '') + esc(d.variant_name) + '</div>';
-  h += '<div style="font-size:1.2rem;font-weight:700;color:#222;">' + esc(d.option_name) + viaLabel + '</div>';
+  h += '<div style="font-size:1.2rem;font-weight:700;color:#222;">' + esc(d.option_name) + '</div>';
   h += '<div style="font-size:1.3rem;font-weight:700;color:#059669;margin:4px 0 0;">' + fmtRp(shownPrice) + '</div>';
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:14px;font-size:.85rem;">';
   h += '<span style="color:#888;">Masa Aktif</span><span style="font-weight:600;text-align:right;">' + esc(d.validity || '-') + '</span>';
@@ -218,15 +215,7 @@ function detailHtml(d) {
   h += '<div class="pay-grid">';
   var pulsaBtn = '<a class="pay-btn" href="/user/xl/beli-paket/' + encodeURIComponent(d.url_id) + '/checkout/balance">Pulsa<span class="sub">Bayar dengan pulsa XL</span></a>';
   var qrisBtn = '<a class="pay-btn" href="/user/xl/beli-paket/' + encodeURIComponent(d.url_id) + '/checkout/qris">QRIS<span class="sub">Bayar dengan QRIS</span></a>';
-  var pulsaOff = '<div class="pay-btn disabled">Pulsa<span class="sub">Bayar dengan pulsa XL</span></div>';
-  var qrisOff = '<div class="pay-btn disabled">QRIS<span class="sub">Bayar dengan QRIS</span></div>';
-  if (DETAIL_VIA === 'qris') {
-    h += pulsaOff + qrisBtn;
-  } else if (DETAIL_VIA === 'pulsa') {
-    h += pulsaBtn + qrisOff;
-  } else {
-    h += pulsaBtn + qrisBtn;
-  }
+  h += pulsaBtn + qrisBtn;
   h += '</div></div>';
 
   return h + '</div>';

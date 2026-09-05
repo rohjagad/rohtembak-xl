@@ -369,6 +369,13 @@ async def lifespan(app: FastAPI):
         ):
             if _name not in _cols:
                 _db0.execute(_text(f"ALTER TABLE xl_families ADD COLUMN {_name} {_ddl}"))
+        _pkg_cols = [r[1] for r in _db0.execute(_text("PRAGMA table_info(package_prices)"))]
+        for _name, _ddl in (
+            ("decoy_qris", "VARCHAR(100) NOT NULL DEFAULT ''"),
+            ("decoy_pulsa", "VARCHAR(100) NOT NULL DEFAULT ''"),
+        ):
+            if _name not in _pkg_cols:
+                _db0.execute(_text(f"ALTER TABLE package_prices ADD COLUMN {_name} {_ddl}"))
         _db0.commit()
         _seed_xl_families(_db0)
         _db0.close()
@@ -756,6 +763,147 @@ def admin_set_fee(
     return RedirectResponse(url="/admin/fees", status_code=303)
 
 
+def _decoy_json_body(cfg: dict) -> dict:
+    return {
+        "label": cfg.get("label") or "",
+        "family_name": cfg.get("family_name") or "",
+        "family_code": cfg.get("family_code") or "",
+        "is_enterprise": bool(cfg.get("is_enterprise")),
+        "migration_type": cfg.get("migration_type") or "NONE",
+        "variant_code": cfg.get("variant_code") or "",
+        "option_name": cfg.get("option_name") or "",
+        "order": cfg.get("order") or 0,
+        "price": cfg.get("price") or 0,
+    }
+
+
+def _list_decoys(payment_type: str) -> list[dict]:
+    from app.service.decoy import list_decoy_names, load_decoy_config, decoy_label
+    names = list_decoy_names(payment_type)
+    if "default" not in names and load_decoy_config(payment_type) is not None:
+        names.insert(0, "default")
+    out = []
+    for n in names:
+        cfg = dict(load_decoy_config(payment_type, n) or {})
+        cfg["name"] = n
+        cfg["label"] = decoy_label(n, cfg)
+        cfg["json_text"] = json.dumps(_decoy_json_body(cfg), indent=2, ensure_ascii=False)
+        out.append(cfg)
+    return out
+
+
+@app.get("/admin/decoys", response_class=HTMLResponse)
+def admin_decoys_page(request: Request, user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    return render("admin/decoys.html", context={
+        "request": request,
+        "user": user,
+        "decoys": {"qris": _list_decoys("qris"), "balance": _list_decoys("balance")},
+        "error": request.query_params.get("error"),
+        "updated": request.query_params.get("updated"),
+    })
+
+
+@app.get("/admin/decoys/form", response_class=HTMLResponse)
+def admin_decoy_form_page(request: Request, user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    ptype = request.query_params.get("type", "")
+    if ptype not in ("qris", "balance"):
+        return RedirectResponse(url="/admin/decoys", status_code=303)
+    mode = request.query_params.get("mode", "new")
+    original = request.query_params.get("name", "")
+    default_text = json.dumps(_decoy_json_body({}), indent=2, ensure_ascii=False)
+    if mode == "edit":
+        from app.service.decoy import load_decoy_config, decoy_label
+        cfg = load_decoy_config(ptype, original) or {}
+        if not cfg:
+            return RedirectResponse(url="/admin/decoys", status_code=303)
+        label = decoy_label(original, cfg)
+        data_text = json.dumps(_decoy_json_body(cfg), indent=2, ensure_ascii=False)
+    else:
+        cfg = {}
+        label = ""
+        data_text = default_text
+    return render("admin/decoy_form.html", context={
+        "request": request,
+        "user": user,
+        "mode": "edit" if mode == "edit" else "new",
+        "type": ptype,
+        "original": original if mode == "edit" else "",
+        "label": label,
+        "data_text": data_text,
+    })
+
+
+@app.post("/admin/decoys/save")
+def admin_decoy_save(
+    payment_type: str = Form(...),
+    name: str = Form(""),
+    label: str = Form(""),
+    data: str = Form(""),
+    user: User = Depends(get_current_user),
+):
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    if payment_type not in ("qris", "balance"):
+        return RedirectResponse(url="/admin/decoys", status_code=303)
+    def _to_int(v) -> int:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+    try:
+        cfg = json.loads(data or "{}")
+    except ValueError:
+        return RedirectResponse(url="/admin/decoys?error=json", status_code=303)
+    if not isinstance(cfg, dict):
+        return RedirectResponse(url="/admin/decoys?error=json", status_code=303)
+    config = {
+        "label": label.strip()[:60],
+        "family_name": str(cfg.get("family_name") or "").strip()[:200],
+        "family_code": str(cfg.get("family_code") or "").strip()[:64],
+        "is_enterprise": bool(cfg.get("is_enterprise")),
+        "migration_type": str(cfg.get("migration_type") or "NONE").strip()[:20] or "NONE",
+        "variant_code": str(cfg.get("variant_code") or "").strip()[:64],
+        "option_name": str(cfg.get("option_name") or "").strip()[:200],
+        "order": _to_int(cfg.get("order")),
+        "price": _to_int(cfg.get("price")),
+    }
+    if not config["family_code"] or not config["variant_code"]:
+        return RedirectResponse(url="/admin/decoys?error=field", status_code=303)
+    from app.service.decoy import save_decoy_config, delete_decoy_config, decoy_slug
+    def _clean(v: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9 _-]", "", (v or "").strip())[:60]
+    raw_name = _clean(name)
+    label = label.strip()[:60]
+    if not label:
+        return RedirectResponse(url="/admin/decoys?error=name", status_code=303)
+    slug = decoy_slug(label)
+    if not slug:
+        return RedirectResponse(url="/admin/decoys?error=name", status_code=303)
+    if raw_name and slug != raw_name:
+        delete_decoy_config(payment_type, raw_name)
+    save_decoy_config(payment_type, slug, config)
+    return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
+
+
+@app.post("/admin/decoys/delete")
+def admin_decoy_delete(
+    payment_type: str = Form(...),
+    name: str = Form(...),
+    user: User = Depends(get_current_user),
+):
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    if payment_type not in ("qris", "balance"):
+        return RedirectResponse(url="/admin/decoys", status_code=303)
+    from app.service.decoy import delete_decoy_config
+    delete_decoy_config(payment_type, re.sub(r"[^a-zA-Z0-9 _-]", "", (name or "")).strip()[:60])
+    return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
+
+
 @app.get("/prices-xl", response_class=HTMLResponse)
 def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user)):
     if user.role != "admin":
@@ -793,6 +941,8 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
                 "api_price": api_price,
                 "display": ov.display_price if ov else None,
                 "rewrite": ov.rewrite_price if ov else None,
+                "decoy_qris": (ov.decoy_qris or "") if ov else "",
+                "decoy_pulsa": (ov.decoy_pulsa or "") if ov else "",
             })
         rows.append(row)
     admin_sess = _admin_xl_read()
@@ -807,9 +957,10 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
         "next_family_key": next_family_key,
         "family_codes": {k: v["family_code"] for k, v in reg.items()},
         "family_prefixes": {k: v["url_prefix"] for k, v in reg.items()},
-        "family_decoys": {k: v["qris_decoy"] for k, v in reg.items()},
         "family_options": {k: ",".join(str(x) for x in v["option_codes"]) for k, v in reg.items()},
         "family_actives": {k: v["is_active"] for k, v in reg.items()},
+        "decoy_names_qris": [{"name": d["name"], "label": d["label"]} for d in _list_decoys("qris")],
+        "decoy_names_pulsa": [{"name": d["name"], "label": d["label"]} for d in _list_decoys("balance")],
         "admin_xl_phone": admin_sess.get("phone_number") if admin_sess else None,
     })
 
@@ -821,6 +972,8 @@ def admin_prices_xl_set(
     old_option_number: int = Form(-1),
     display_price: str = Form(""),
     rewrite_price: str = Form(""),
+    decoy_qris: str = Form(""),
+    decoy_pulsa: str = Form(""),
     user: User = Depends(get_current_user),
 ):
     if user.role != "admin":
@@ -836,6 +989,15 @@ def admin_prices_xl_set(
         return RedirectResponse(url="/prices-xl", status_code=303)
     if (display is not None and display < 0) or (rewrite is not None and rewrite < 0):
         return RedirectResponse(url="/prices-xl", status_code=303)
+    def _clean_decoy(v: str, known: list) -> str:
+        v = re.sub(r"[^a-zA-Z0-9 _-]", "", (v or "").strip())[:60]
+        if v in ("none", ""):
+            return ""
+        if known and v not in known:
+            return ""
+        return v
+    decoy_qris = _clean_decoy(decoy_qris, [d["name"] for d in _list_decoys("qris")])
+    decoy_pulsa = _clean_decoy(decoy_pulsa, [d["name"] for d in _list_decoys("balance")])
     # XCP: memindahkan baris Alternatif (old ada di posisi tersimpan) =
     # mengubah posisi katalog alt tersebut; override ikut karena key-nya nomor
     # posisi. Orphan (old di luar posisi) cukup dinomori ulang — kalau nomor
@@ -855,7 +1017,8 @@ def admin_prices_xl_set(
                 PackagePrice.option_number == old_option_number,
             ).first()
             if src:
-                if display is None and rewrite is None:
+                if (display is None and rewrite is None
+                        and not decoy_qris and not decoy_pulsa):
                     db.delete(src)
                 else:
                     dst = db.query(PackagePrice).filter(
@@ -870,6 +1033,8 @@ def admin_prices_xl_set(
                     src.option_number = option_number
                     src.display_price = display
                     src.rewrite_price = rewrite
+                    src.decoy_qris = decoy_qris
+                    src.decoy_pulsa = decoy_pulsa
                 db.commit()
                 return RedirectResponse(url="/prices-xl", status_code=303)
             # src tidak ada → jatuh ke logika upsert normal di bawah.
@@ -877,7 +1042,8 @@ def admin_prices_xl_set(
             PackagePrice.family_key == family_key,
             PackagePrice.option_number == option_number,
         ).first()
-        if display is None and rewrite is None:
+        if (display is None and rewrite is None
+                and not decoy_qris and not decoy_pulsa):
             if row:
                 db.delete(row)
         else:
@@ -886,6 +1052,8 @@ def admin_prices_xl_set(
                 db.add(row)
             row.display_price = display
             row.rewrite_price = rewrite
+            row.decoy_qris = decoy_qris
+            row.decoy_pulsa = decoy_pulsa
         db.commit()
     finally:
         db.close()
@@ -908,7 +1076,7 @@ def admin_prices_xl_family(
       di-generate otomatis sebagai group-package-N (N urut), jadi admin tak
       perlu mengisi slug/prefix yang membingungkan.
     - Dengan family_key = EDIT family yang sudah ada (label, family code,
-      url prefix, option codes, flag decoy).
+      url prefix, option codes).
 
     Label & family code diisi manual; halaman beli-paket otomatis merender
     family_key baru sebagai container baru.
@@ -3762,6 +3930,25 @@ def _pkg_price_override(family_key, option_number):
         db.close()
 
 
+def _pkg_decoy_override(family_key, option_number):
+    """Decoy terpilih per paket dari DB (decoy_qris, decoy_pulsa).
+
+    "" / "none" = tanpa decoy
+    lain        = nama config decoy di decoy_data/{qris|balance}/
+    """
+    db = next(get_db())
+    try:
+        row = db.query(PackagePrice).filter(
+            PackagePrice.family_key == family_key,
+            PackagePrice.option_number == option_number,
+        ).first()
+        if not row:
+            return "", ""
+        return (row.decoy_qris or ""), (row.decoy_pulsa or "")
+    finally:
+        db.close()
+
+
 def _get_all_pkg_prices() -> list:
     """Kumpulkan semua override harga paket untuk backup (prices.json)."""
     db = next(get_db())
@@ -3853,18 +4040,11 @@ def user_xl_beli_paket(request: Request, user: User = Depends(get_current_user))
     # Family baru yang ditambahkan admin otomatis muncul di sini.
     sections = []
     for fam_key, cfg in _active_families().items():
-        if cfg["qris_decoy"]:
-            sections.append({"key": f"{fam_key}-balance", "fam": fam_key,
-                             "title": f"{cfg['label']} (via Pulsa)"})
-            sections.append({"key": f"{fam_key}-qris", "fam": fam_key,
-                             "title": f"{cfg['label']} (via QRIS)"})
-        else:
-            sections.append({"key": fam_key, "fam": fam_key, "title": cfg["label"]})
+        sections.append({"key": fam_key, "fam": fam_key, "title": cfg["label"]})
 
     ctx.update({
         "request": request,
         "family_name": _family_label("xcp"),
-        "qris_decoy_price": _qris_decoy_price(),
         "sections": sections,
         "url_prefixes": {k: v["url_prefix"] for k, v in _active_families().items()},
     })
@@ -4042,15 +4222,12 @@ def user_xl_detail_paket(request: Request, family_prefix: str, option_number: in
     db.close()
     if via not in ("pulsa", "qris"):
         via = ""
-    cfg = _family_registry()[fam_key]
     ctx.update({
         "request": request,
         "family": fam_key,
         "family_prefix": family_prefix,
         "n": option_number,
         "via": via,
-        "qris_decoy": cfg["qris_decoy"],
-        "qris_decoy_price": _qris_decoy_price() if cfg["qris_decoy"] else 0,
     })
     return render("user/detail_paket.html", context=ctx)
 
@@ -4231,10 +4408,10 @@ def _get_family_items_and_detail(fam_key, option_number, active_xl, tokens=None)
             option_number_local += 1
     return None, None
 
-def _append_decoy_item(items, tokens, payment_type="balance"):
+def _append_decoy_item(items, tokens, payment_type="balance", name="default"):
     from app.service.decoy import build_decoy_item
     _api_delay()
-    decoy_item = build_decoy_item(API_KEY, tokens, payment_type)
+    decoy_item = build_decoy_item(API_KEY, tokens, payment_type, name)
     if not decoy_item or not decoy_item["item_code"]:
         return items, None
     return items + [decoy_item], int(decoy_item["item_price"] or 0)
@@ -4251,7 +4428,7 @@ def _parse_bizz_total(error_msg):
     return None
 
 
-def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy):
+def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_name="default"):
     # rewrite_price (dari /prices-xl) menang atas display/api — ini jumlah
     # yang benar-benar ditagih; item_price PaymentItem TETAP harga asli API.
     charge = detail.get("rewrite_price")
@@ -4260,7 +4437,7 @@ def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy):
     if not use_decoy:
         return pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge)
 
-    items_with_decoy, decoy_price = _append_decoy_item(items, tokens, method)
+    items_with_decoy, decoy_price = _append_decoy_item(items, tokens, method, decoy_name)
     if decoy_price is None:
         raise ValueError("Gagal memuat paket decoy.")
     overwrite_amount = int(charge or 0) + decoy_price
@@ -4284,7 +4461,12 @@ def _process_payment(active_xl, fam_key, option_number, method):
     pay_success = None
     detail = None
     pay_extra = {}
-    use_decoy = bool(_family_registry().get(fam_key, {}).get("qris_decoy"))
+    # Decoy murni per-package: override pada /prices-xl menentukan satu-satunya
+    # decoy untuk metode ini. Kosong/none = tanpa decoy.
+    dq, dp = _pkg_decoy_override(fam_key, option_number)
+    href = dq if method == "qris" else dp
+    use_decoy = bool(href and href != "none")
+    decoy_name = href if use_decoy else "default"
     _stdout_buf = io.StringIO()
     with redirect_stdout(_stdout_buf):
         if active_xl and active_xl.refresh_token:
@@ -4300,7 +4482,7 @@ def _process_payment(active_xl, fam_key, option_number, method):
                     if method == "balance":
                         from app.client.purchase.balance import settlement_balance as pay_balance
                         _api_delay()
-                        res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance", use_decoy)
+                        res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance", use_decoy, decoy_name)
                         if res and res.get("status") == "SUCCESS":
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
                         else:
@@ -4308,7 +4490,7 @@ def _process_payment(active_xl, fam_key, option_number, method):
                     elif method == "qris":
                         from app.client.purchase.qris import show_qris_payment
                         _api_delay()
-                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", use_decoy)
+                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", use_decoy, decoy_name)
                         if qris_result:
                             qris_b64, _, qris_remaining = qris_result
                             pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
@@ -4435,7 +4617,7 @@ _decoy_price_cache: dict = {}
 _DECOY_PRICE_TTL = int(float(ACCESS_TOKEN_EXPIRE_MINUTES) * 60)
 
 
-def _qris_decoy_price(active_xl=None):
+def _qris_decoy_price(active_xl=None, name="default"):
     """Harga decoy QRIS yang dipakai di settlement (live dari API).
 
     Checkout menampilkan harga ini agar total QRIS di layar == total yang
@@ -4443,29 +4625,30 @@ def _qris_decoy_price(active_xl=None):
     fallback config TIDAK di-cache supaya begitu ada akun XL aktif,
     checkout berikutnya langsung memakai harga live.
     """
-    entry = _decoy_price_cache.get("qris")
+    cache_key = f"qris:{name}"
+    entry = _decoy_price_cache.get(cache_key)
     if entry and entry[1] > time.time():
         return entry[0]
     try:
         from app.service.decoy import build_decoy_item, load_decoy_config
-        config = load_decoy_config("qris") or {}
+        config = load_decoy_config("qris", name) or {}
         price = int(config.get("price") or 0)
         if active_xl and active_xl.refresh_token:
             _api_delay()
             tokens = _get_xl_tokens(active_xl)
             if tokens:
                 _api_delay()
-                item = build_decoy_item(API_KEY, tokens, "qris")
+                item = build_decoy_item(API_KEY, tokens, "qris", name)
                 if item:
                     price = int(item["item_price"] or 0)
-                    _decoy_price_cache["qris"] = (price, time.time() + _DECOY_PRICE_TTL)
+                    _decoy_price_cache[cache_key] = (price, time.time() + _DECOY_PRICE_TTL)
                     return price
     except Exception:
         pass
     return price
 
 
-def _checkout_context(active_xl, user, detail, method, family_key):
+def _checkout_context(active_xl, user, detail, method, family_key, option_number=None):
     db = next(get_db())
     try:
         bal = db.query(Balance).filter(Balance.user_id == user.id).first()
@@ -4474,20 +4657,41 @@ def _checkout_context(active_xl, user, detail, method, family_key):
         db.close()
     fee = _get_family_fee(_fee_key(family_key, method))
     remaining = balance - fee
-    decoy = bool(_family_registry().get(family_key, {}).get("qris_decoy"))
+    # Decoy murni per-package (override /prices-xl). Kosong/none = tanpa decoy.
+    decoy = False
+    decoy_name = "default"
+    if option_number is not None:
+        dq, dp = _pkg_decoy_override(family_key, option_number)
+        href = dq if method == "qris" else dp
+        if href and href != "none":
+            decoy = True
+            decoy_name = href
     # Checkout menampilkan harga yang BENAR-BENAR ditagih: rewrite_price kalau
     # di-set di /prices-xl, selain itu display_price, lalu harga API.
-    price = detail.get("rewrite_price")
-    if price is None:
-        price = detail.get("price") or 0
-    if decoy and method == "qris":
-        price = price + _qris_decoy_price(active_xl)
+    # Decoy QRIS ditampilkan sebagai baris terpisah ("biaya decoy") supaya
+    # user lihat bahwa ada penambah harga.
+    base_price = detail.get("rewrite_price")
+    if base_price is None:
+        base_price = detail.get("price") or 0
+    decoy_extra = 0
+    decoy_threshold = 0
+    if decoy:
+        if method == "qris":
+            decoy_extra = _qris_decoy_price(active_xl, decoy_name)
+        elif method == "balance":
+            from app.service.decoy import load_decoy_config
+            decoy_threshold = int((load_decoy_config("balance", decoy_name) or {}).get("price") or 0)
+    price = int(base_price or 0) + int(decoy_extra or 0)
     return {
         "detail": detail,
         "method": method,
         "method_label": PAY_METHOD_LABELS.get(method, method),
         "balance": balance,
         "price": price,
+        "base_price": int(base_price or 0),
+        "decoy_extra": int(decoy_extra or 0),
+        "decoy_threshold": int(decoy_threshold or 0),
+        "decoy_name": decoy_name if decoy else "",
         "fee": fee,
         "family_label": _family_label(family_key),
         "remaining": remaining,
@@ -4519,7 +4723,7 @@ def checkout_paket(request: Request, family_prefix: str, option_number: int, met
     detail = _checkout_detail(active_xl, lambda: _family_detail(fam_key, option_number, active_xl))
     if not detail:
         return RedirectResponse(url=f"/user/xl/beli-paket/{family_prefix}-{option_number}/detail", status_code=303)
-    cc = _checkout_context(active_xl, user, detail, method, fam_key)
+    cc = _checkout_context(active_xl, user, detail, method, fam_key, option_number)
     ctx.update({"request": request, **cc})
     return render("user/checkout.html", context=ctx)
 
@@ -4545,8 +4749,8 @@ def _panel_fee_precheck(user, family_key: str, method: str):
 @app.post("/user/xl/beli-paket/{family_prefix}-{option_number}/pay/{method}")
 def pay_paket(request: Request, family_prefix: str, option_number: int, method: str,
               user: User = Depends(get_current_user)):
-    """Pay generik — family dari url_prefix registry; decoy hanya utk family
-    yang menandainya (qris_decoy, mis. Xtra Conference)."""
+    """Pay generik — family dari url_prefix registry; decoy murni per-package
+    (override set di /prices-xl per paket, bukan per family)."""
     if user.role != "user":
         return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
     if method not in PAY_METHOD_LABELS:
@@ -4554,14 +4758,12 @@ def pay_paket(request: Request, family_prefix: str, option_number: int, method: 
     fam_key = _family_key_by_prefix(family_prefix)
     if not fam_key:
         return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
-    cfg = _family_registry()[fam_key]
     blocked = _panel_fee_precheck(user, fam_key, method)
     if blocked:
         return blocked
     db = next(get_db())
     ctx = get_user_context(user, db)
     db.close()
-    addon_spec = cfg["qris_decoy"]
     return _pay_with_fee(user, ctx,
                          lambda: _process_payment(ctx.get("active_xl"), fam_key, option_number, method),
                          fam_key, method)

@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Atur Decoy XL - RohTembak (XL){% endblock %}
+{% block head %}
+<style>
+.decoys-wrap { overflow-x: auto; }
+.decoys-table th, .decoys-table td { padding: 12px 14px; vertical-align: middle; }
+.decoys-table th.actions, .decoys-table td.actions { width: 1%; white-space: nowrap; text-align: right; }
+.decoys-table td.num { white-space: nowrap; }
+.decoys-table .decoy-main { font-weight: 600; font-size: 14px; color: #111; }
+.decoys-table .decoy-sub { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: #9ca3af; margin-top: 2px; }
+.decoys-table .btn { padding: 4px 10px; font-size: 12.5px; }
+.decoys-table .btn-danger-lite { color: #dc2626; }
+.decoys-table .btn-danger-lite:hover { border-color: #dc2626; color: #dc2626; }
+.decoys-table td.actions form { display: inline; }
+.section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: #6b7280; }
+.section-title .badge { margin-left: 2px; }
+
+@media (max-width: 700px) {
+  .decoys-wrap { overflow: visible; }
+  .decoys-table, .decoys-table tbody { display: block; width: 100%; }
+  .decoys-table thead { display: none; }
+  .decoys-table tbody tr {
+    display: block;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .decoys-table tbody tr:hover td { background: transparent; }
+  .decoys-table td { display: block; padding: 0; border: none; }
+  .decoys-table td + td { margin-top: 10px; }
+  .decoys-table td.num {
+    display: flex; align-items: center; justify-content: space-between;
+    font-weight: 600; color: #059669; font-size: 15px;
+  }
+  .decoys-table td.num::before {
+    content: "Harga"; font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .5px; color: #9ca3af;
+  }
+  .decoys-table td.actions { display: flex; gap: 8px; margin-top: 12px; }
+  .decoys-table td.actions .btn, .decoys-table td.actions form { flex: 1; }
+  .decoys-table td.actions form button { width: 100%; }
+}
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="header-section">
+    <div>
+        <div class="page-title">Atur Decoy XL</div>
+        <div class="page-subtitle">Kelola paket penambah (decoy) QRIS &amp; Pulsa. Tombol edit untuk mengubah JSON config.</div>
+    </div>
+</div>
+
+{% if error == 'json' %}<div class="error-msg">JSON tidak valid — periksa kembali isinya.</div>
+{% elif error == 'field' %}<div class="error-msg">Family code &amp; variant code wajib diisi.</div>
+{% elif error == 'name' %}<div class="error-msg">Nama decoy tidak valid.</div>
+{% elif updated %}<div style="color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;padding:10px 14px;border-radius:8px;font-size:13.5px;margin-bottom:14px;">Tersimpan.</div>
+{% endif %}
+
+{% for t, tlabel in [("qris", "QRIS"), ("balance", "Pulsa")] %}
+<div class="card" style="padding:20px 24px;">
+    <div class="section-head">
+        <div class="section-title">Decoy {{ tlabel }} <span class="badge">{{ decoys[t] | length }}</span></div>
+    </div>
+
+    <div class="decoys-wrap">
+        <table class="decoys-table">
+            <thead>
+                <tr>
+                    <th>Label</th>
+                    <th>Slug (file)</th>
+                    <th>Harga</th>
+                    <th class="actions"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in decoys[t] %}
+                <tr>
+                    <td><div class="decoy-main">{{ d.label }}</div></td>
+                    <td><div class="decoy-sub">{{ d.name }}</div></td>
+                    <td class="num">{{ d.price|rupiah }} IDR</td>
+                    <td class="actions">
+                        <a href="/admin/decoys/form?mode=edit&type={{ t }}&name={{ d.name | urlencode }}" class="btn btn-sm btn-outline">Edit</a>
+                        <form method="POST" action="/admin/decoys/delete" onsubmit="return confirm('Hapus decoy {{ d.label }}?');">
+                            <input type="hidden" name="payment_type" value="{{ t }}">
+                            <input type="hidden" name="name" value="{{ d.name }}">
+                            <button type="submit" class="btn btn-sm btn-outline btn-danger-lite">Hapus</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" style="text-align:center;padding:22px 14px;color:#9ca3af;font-size:13px;">
+                        Belum ada decoy {{ tlabel }} — klik <strong style="color:#4361ee;">+ Tambah Decoy {{ tlabel }}</strong> di bawah.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="4" style="text-align:center;border:none;padding:10px 0;">
+                        <a href="/admin/decoys/form?mode=new&type={{ t }}" class="btn btn-sm btn-outline">+ Tambah Decoy {{ tlabel }}</a>
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+{% endfor %}
+
+{% endblock %}

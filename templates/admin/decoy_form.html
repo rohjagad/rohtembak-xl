@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if mode == 'edit' else 'Tambah' }} Decoy - RohTembak (XL){% endblock %}
+{% block head %}
+<style>
+.decoy-textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; min-height: 260px; padding: 10px; resize: vertical; box-sizing: border-box; }
+.decoy-name-input { width: 320px; max-width: 100%; }
+.decoy-slug-out { background: #f3f4f6; padding: 2px 6px; border-radius: 5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; color: #374151; }
+.field-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: #6b7280; }
+@media (max-width: 700px) { .decoy-name-input { width: 100%; } }
+</style>
+<script>
+function slugPreview() {
+  var v = document.getElementById('decoy-label').value;
+  var s = (v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  document.getElementById('decoy-slug-out').textContent = (s || '->') + '.json';
+}
+</script>
+{% endblock %}
+{% block content %}
+
+<div class="header-section">
+    <div>
+        <div class="page-title">{% if mode == 'edit' %}Edit Decoy{% else %}Tambah Decoy{% endif %} {{ 'QRIS' if type == 'qris' else 'Pulsa' }}</div>
+        <div class="page-subtitle"><a href="/admin/decoys">&larr; Kembali ke daftar decoy</a></div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="POST" action="/admin/decoys/save">
+        <input type="hidden" name="payment_type" value="{{ type }}">
+        <input type="hidden" name="name" value="{{ original }}">
+
+        <div style="margin-bottom:16px;">
+            <label style="display:flex;flex-direction:column;gap:6px;">
+                <span class="field-label">Nama decoy</span>
+                <input type="text" id="decoy-label" name="label" value="{{ label }}" placeholder="mis. Jaga 100k" class="form-control decoy-name-input" required oninput="slugPreview()">
+                <span style="font-size:11.5px;color:#6b7280;">
+                    File: <span class="decoy-slug-out" id="decoy-slug-out">{{ label|lower|replace(' ', '') }}.json</span>
+                </span>
+            </label>
+        </div>
+
+        <div style="margin-bottom:16px;">
+            <label style="display:flex;flex-direction:column;gap:6px;">
+                <span class="field-label">Isi JSON config</span>
+                <textarea name="data" class="form-control decoy-textarea" required>{{ data_text }}</textarea>
+            </label>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;">
+            <button type="submit" class="btn btn-sm btn-primary">{% if mode == 'edit' %}Simpan Perubahan{% else %}Simpan Decoy{% endif %}</button>
+            <a href="/admin/decoys" class="btn btn-sm btn-outline">Batal</a>
+        </div>
+    </form>
+</div>
+
+{% endblock %}
