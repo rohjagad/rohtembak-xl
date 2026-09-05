@@ -373,6 +373,8 @@ async def lifespan(app: FastAPI):
         for _name, _ddl in (
             ("decoy_qris", "VARCHAR(100) NOT NULL DEFAULT ''"),
             ("decoy_pulsa", "VARCHAR(100) NOT NULL DEFAULT ''"),
+            ("fee_qris", "INTEGER DEFAULT NULL"),
+            ("fee_pulsa", "INTEGER DEFAULT NULL"),
         ):
             if _name not in _pkg_cols:
                 _db0.execute(_text(f"ALTER TABLE package_prices ADD COLUMN {_name} {_ddl}"))
@@ -678,26 +680,6 @@ def admin_users_page(request: Request, user: User = Depends(get_current_user)):
     })
 
 
-@app.get("/admin/fees", response_class=HTMLResponse)
-def admin_fees_page(request: Request, user: User = Depends(get_current_user)):
-    if user.role != "admin":
-        return RedirectResponse(url="/user/dashboard", status_code=303)
-    fees = _get_all_family_fees()
-    fee_rows = []
-    for fam in _family_registry():
-        fee_rows.append({
-            "key": fam,
-            "label": _family_label(fam),
-            "pulsa": fees.get(_fee_key(fam, "balance"), 0),
-            "qris": fees.get(_fee_key(fam, "qris"), 0),
-        })
-    return render("admin/fees.html", context={
-        "request": request,
-        "user": user,
-        "fee_rows": fee_rows,
-    })
-
-
 @app.get("/admin/credentials", response_class=HTMLResponse)
 def admin_credentials_page(request: Request, user: User = Depends(get_current_user)):
     if user.role != "admin":
@@ -745,22 +727,6 @@ def admin_credentials_update(
     db.add(user)
     db.commit()
     return RedirectResponse(url=f"/admin/credentials?updated=1&mode={mode}", status_code=303)
-
-
-@app.post("/admin/fees/set")
-def admin_set_fee(
-    family_key: str = Form(...),
-    fee_pulsa: int = Form(...),
-    fee_qris: int = Form(...),
-    user: User = Depends(get_current_user),
-):
-    if user.role != "admin":
-        return RedirectResponse(url="/user/dashboard", status_code=303)
-    if family_key not in _family_registry() or fee_pulsa < 0 or fee_qris < 0:
-        return RedirectResponse(url="/admin/fees", status_code=303)
-    _set_family_fee(_fee_key(family_key, "balance"), fee_pulsa)
-    _set_family_fee(_fee_key(family_key, "qris"), fee_qris)
-    return RedirectResponse(url="/admin/fees", status_code=303)
 
 
 def _decoy_json_body(cfg: dict) -> dict:
@@ -917,6 +883,7 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
     for ov in overrides:
         ov_map[(ov.family_key, ov.option_number)] = ov
     reg = _family_registry()
+    fees = _get_all_family_fees()
     rows = []
     for fam, cfg in reg.items():
         row = {"key": fam, "label": cfg["label"], "pkgs": []}
@@ -943,18 +910,15 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
                 "rewrite": ov.rewrite_price if ov else None,
                 "decoy_qris": (ov.decoy_qris or "") if ov else "",
                 "decoy_pulsa": (ov.decoy_pulsa or "") if ov else "",
+                "fee_pulsa": (ov.fee_pulsa if ov and ov.fee_pulsa is not None else fees.get(_fee_key(fam, "balance"), 0)),
+                "fee_qris": (ov.fee_qris if ov and ov.fee_qris is not None else fees.get(_fee_key(fam, "qris"), 0)),
             })
         rows.append(row)
     admin_sess = _admin_xl_read()
-    n = 1
-    while f"group-package-{n}" in reg:
-        n += 1
-    next_family_key = f"group-package-{n}"
     return render("admin/prices_xl.html", context={
         "request": request,
         "user": user,
         "rows": rows,
-        "next_family_key": next_family_key,
         "family_codes": {k: v["family_code"] for k, v in reg.items()},
         "family_prefixes": {k: v["url_prefix"] for k, v in reg.items()},
         "family_options": {k: ",".join(str(x) for x in v["option_codes"]) for k, v in reg.items()},
@@ -974,6 +938,8 @@ def admin_prices_xl_set(
     rewrite_price: str = Form(""),
     decoy_qris: str = Form(""),
     decoy_pulsa: str = Form(""),
+    fee_pulsa: str = Form(""),
+    fee_qris: str = Form(""),
     user: User = Depends(get_current_user),
 ):
     if user.role != "admin":
@@ -985,9 +951,13 @@ def admin_prices_xl_set(
     try:
         display = int(display_price) if display_price.strip() else None
         rewrite = int(rewrite_price) if rewrite_price.strip() else None
+        fee_p = int(fee_pulsa) if fee_pulsa.strip() else None
+        fee_q = int(fee_qris) if fee_qris.strip() else None
     except ValueError:
         return RedirectResponse(url="/prices-xl", status_code=303)
     if (display is not None and display < 0) or (rewrite is not None and rewrite < 0):
+        return RedirectResponse(url="/prices-xl", status_code=303)
+    if (fee_p is not None and fee_p < 0) or (fee_q is not None and fee_q < 0):
         return RedirectResponse(url="/prices-xl", status_code=303)
     def _clean_decoy(v: str, known: list) -> str:
         v = re.sub(r"[^a-zA-Z0-9 _-]", "", (v or "").strip())[:60]
@@ -1018,7 +988,8 @@ def admin_prices_xl_set(
             ).first()
             if src:
                 if (display is None and rewrite is None
-                        and not decoy_qris and not decoy_pulsa):
+                        and not decoy_qris and not decoy_pulsa
+                        and fee_p is None and fee_q is None):
                     db.delete(src)
                 else:
                     dst = db.query(PackagePrice).filter(
@@ -1035,6 +1006,8 @@ def admin_prices_xl_set(
                     src.rewrite_price = rewrite
                     src.decoy_qris = decoy_qris
                     src.decoy_pulsa = decoy_pulsa
+                    src.fee_pulsa = fee_p
+                    src.fee_qris = fee_q
                 db.commit()
                 return RedirectResponse(url="/prices-xl", status_code=303)
             # src tidak ada → jatuh ke logika upsert normal di bawah.
@@ -1043,7 +1016,8 @@ def admin_prices_xl_set(
             PackagePrice.option_number == option_number,
         ).first()
         if (display is None and rewrite is None
-                and not decoy_qris and not decoy_pulsa):
+                and not decoy_qris and not decoy_pulsa
+                and fee_p is None and fee_q is None):
             if row:
                 db.delete(row)
         else:
@@ -1054,6 +1028,8 @@ def admin_prices_xl_set(
             row.rewrite_price = rewrite
             row.decoy_qris = decoy_qris
             row.decoy_pulsa = decoy_pulsa
+            row.fee_pulsa = fee_p
+            row.fee_qris = fee_q
         db.commit()
     finally:
         db.close()
@@ -1073,7 +1049,7 @@ def admin_prices_xl_family(
     """Manage family group di registry.
 
     - Tanpa family_key = TAMBAH group baru: family_key & url_prefix
-      di-generate otomatis sebagai group-package-N (N urut), jadi admin tak
+      di-generate otomatis (random short id), jadi admin tak
       perlu mengisi slug/prefix yang membingungkan.
     - Dengan family_key = EDIT family yang sudah ada (label, family code,
       url prefix, option codes).
@@ -1103,10 +1079,7 @@ def admin_prices_xl_family(
     else:
         if not family_code:
             return RedirectResponse(url="/prices-xl", status_code=303)
-        n = 1
-        while f"group-package-{n}" in reg:
-            n += 1
-        family_key = f"group-package-{n}"
+        family_key = "fam-" + uuid.uuid4().hex[:8]
         prefix = family_key
     db = next(get_db())
     try:
@@ -4576,6 +4549,24 @@ def _get_family_fee(family_key):
         db.close()
 
 
+def _pkg_fee(family_key, option_number, method):
+    """Fee saldo panel per-package; fallback ke fee family bila belum di-override."""
+    if option_number is not None:
+        db = next(get_db())
+        try:
+            row = db.query(PackagePrice).filter(
+                PackagePrice.family_key == family_key,
+                PackagePrice.option_number == option_number,
+            ).first()
+            if row is not None:
+                val = row.fee_qris if method == "qris" else row.fee_pulsa
+                if val is not None:
+                    return val
+        finally:
+            db.close()
+    return _get_family_fee(_fee_key(family_key, method))
+
+
 def _set_family_fee(family_key, fee):
     db = next(get_db())
     try:
@@ -4655,7 +4646,7 @@ def _checkout_context(active_xl, user, detail, method, family_key, option_number
         balance = bal.balance if bal else 0
     finally:
         db.close()
-    fee = _get_family_fee(_fee_key(family_key, method))
+    fee = _pkg_fee(family_key, option_number, method)
     remaining = balance - fee
     # Decoy murni per-package (override /prices-xl). Kosong/none = tanpa decoy.
     decoy = False
@@ -4727,13 +4718,13 @@ def checkout_paket(request: Request, family_prefix: str, option_number: int, met
     ctx.update({"request": request, **cc})
     return render("user/checkout.html", context=ctx)
 
-def _panel_fee_precheck(user, family_key: str, method: str):
+def _panel_fee_precheck(user, family_key: str, option_number: int, method: str):
     """Return an error response when panel saldo cannot cover the fee; else None.
 
     Called before the XL API call so an underfunded user never reaches purchase.
     The authoritative re-check happens in _deduct_token_balance at settle time.
     """
-    fee = _get_family_fee(_fee_key(family_key, method))
+    fee = _pkg_fee(family_key, option_number, method)
     db = next(get_db())
     try:
         bal = db.query(Balance).filter(Balance.user_id == user.id).first()
@@ -4758,7 +4749,7 @@ def pay_paket(request: Request, family_prefix: str, option_number: int, method: 
     fam_key = _family_key_by_prefix(family_prefix)
     if not fam_key:
         return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
-    blocked = _panel_fee_precheck(user, fam_key, method)
+    blocked = _panel_fee_precheck(user, fam_key, option_number, method)
     if blocked:
         return blocked
     db = next(get_db())
@@ -4766,7 +4757,7 @@ def pay_paket(request: Request, family_prefix: str, option_number: int, method: 
     db.close()
     return _pay_with_fee(user, ctx,
                          lambda: _process_payment(ctx.get("active_xl"), fam_key, option_number, method),
-                         fam_key, method)
+                         fam_key, option_number, method)
 
 def _qris_png_data_uri(qris_b64):
     import base64 as _b64
@@ -4844,13 +4835,13 @@ def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
     return qris_txs, matched_codes
 
 
-def _pay_with_fee(user, ctx, run_purchase, family_key, method):
+def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method):
     """Bayar biaya konsumsi panel SEBELUM purchase XL, refund kalau gagal.
 
     Menutup celah: dua order konkuren yang sama-sama lolos precheck tidak
     lagi bisa mengantre paket tanpa fee — saldo sudah terpotong di depan.
     """
-    fee = _get_family_fee(_fee_key(family_key, method))
+    fee = _pkg_fee(family_key, option_number, method)
     desc = f"Konsumsi saldo panel {_family_label(family_key)} via {PAY_METHOD_LABELS.get(method, method)}"
     if _deduct_token_balance(user, fee, desc) is None:
         return JSONResponse({
@@ -4860,15 +4851,15 @@ def _pay_with_fee(user, ctx, run_purchase, family_key, method):
     detail, pay_error, pay_success, pay_extra = run_purchase()
     if not pay_success:
         _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
-    return _pay_response(user, detail, pay_error, pay_success, method, family_key, pay_extra,
+    return _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number, pay_extra,
                          phone_number=getattr(ctx.get("active_xl"), "phone_number", "") or "",
                          fee_charged=True)
 
 
-def _pay_response(user, detail, pay_error, pay_success, method, family_key, pay_extra=None, phone_number="", fee_charged=False):
+def _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number=None, pay_extra=None, phone_number="", fee_charged=False):
     new_balance = None
     if pay_success:
-        fee = _get_family_fee(_fee_key(family_key, method))
+        fee = _pkg_fee(family_key, option_number, method)
         if not fee_charged:
             new_balance = _deduct_token_balance(
                 user,

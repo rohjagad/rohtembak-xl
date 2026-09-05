@@ -135,6 +135,8 @@ class PackagePrice(Base):
     rewrite_price = Column(Integer, default=None)
     decoy_qris = Column(String(100), nullable=False, default="")
     decoy_pulsa = Column(String(100), nullable=False, default="")
+    fee_qris = Column(Integer, default=None)
+    fee_pulsa = Column(Integer, default=None)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("uq_package_price", "family_key", "option_number", unique=True),)
 

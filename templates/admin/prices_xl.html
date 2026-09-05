@@ -5,6 +5,24 @@
 .price-form { display: flex; gap: 8px; align-items: center; }
 .price-input { width: 120px; }
 .price-hint { font-size: 12.5px; color: #6b7280; line-height: 1.5; }
+.select-wrap { position: relative; }
+.select-wrap select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  width: 100% !important;
+  padding-right: 34px;
+  cursor: pointer;
+}
+.select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid #6b7280;
+  pointer-events: none;
+}
 @media (max-width: 700px) {
   .price-form { width: 100%; flex-wrap: wrap; }
   .price-input { width: 100%; }
@@ -38,7 +56,15 @@
   .edit-row td { display: block; padding: 12px 14px; }
   .edit-row td > div { width: 100%; }
   .edit-row td label { width: 100%; }
-  .edit-row td input { width: 100% !important; box-sizing: border-box; }
+  .edit-row td input, .edit-row td select { width: 100% !important; box-sizing: border-box; }
+  .select-wrap { width: 100% !important; }
+  td.empty-state-td {
+    display: block;
+    justify-content: unset;
+    align-items: unset;
+    text-align: left;
+  }
+  td.empty-state-td::before { content: none; }
 }
 </style>
 {% endblock %}
@@ -123,23 +149,37 @@
                             <span class="price-hint">Rewrite Price:</span>
                             <input type="number" name="rewrite_price" value="{{ it.rewrite if it.rewrite is not none else '' }}" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
                         </label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:90px;max-width:110px;">
+                                <span class="price-hint">Fee Pulsa:</span>
+                                <input type="number" name="fee_pulsa" value="{{ it.fee_pulsa }}" min="0" step="1000" class="form-control price-input" style="width:100%;" title="Biaya saldo panel per transaksi pulsa" form="price-form-{{ sec.key }}-{{ it.number }}">
+                            </label>
+                            <label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:90px;max-width:110px;">
+                                <span class="price-hint">Fee QRIS:</span>
+                                <input type="number" name="fee_qris" value="{{ it.fee_qris }}" min="0" step="1000" class="form-control price-input" style="width:100%;" title="Biaya saldo panel per transaksi QRIS" form="price-form-{{ sec.key }}-{{ it.number }}">
+                            </label>
+                        </div>
                         <label style="display:flex;flex-direction:column;gap:4px;">
                             <span class="price-hint">Decoy QRIS:</span>
-                            <select name="decoy_qris" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
-                                <option value="" {% if not it.decoy_qris or it.decoy_qris in ('none', 'default') %}selected{% endif %}>Tanpa decoy</option>
-                                {% for dn in decoy_names_qris %}
-                                <option value="{{ dn.name }}" {% if it.decoy_qris == dn.name %}selected{% endif %}>{{ dn.label }}</option>
-                                {% endfor %}
-                            </select>
+                            <div class="select-wrap" style="width:200px;">
+                                <select name="decoy_qris" class="form-control price-input" form="price-form-{{ sec.key }}-{{ it.number }}">
+                                    <option value="" {% if not it.decoy_qris or it.decoy_qris in ('none', 'default') %}selected{% endif %}>Tanpa decoy</option>
+                                    {% for dn in decoy_names_qris %}
+                                    <option value="{{ dn.name }}" {% if it.decoy_qris == dn.name %}selected{% endif %}>{{ dn.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </label>
                         <label style="display:flex;flex-direction:column;gap:4px;">
                             <span class="price-hint">Decoy Pulsa:</span>
-                            <select name="decoy_pulsa" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
-                                <option value="" {% if not it.decoy_pulsa or it.decoy_pulsa in ('none', 'default') %}selected{% endif %}>Tanpa decoy</option>
-                                {% for dn in decoy_names_pulsa %}
-                                <option value="{{ dn.name }}" {% if it.decoy_pulsa == dn.name %}selected{% endif %}>{{ dn.label }}</option>
-                                {% endfor %}
-                            </select>
+                            <div class="select-wrap" style="width:200px;">
+                                <select name="decoy_pulsa" class="form-control price-input" form="price-form-{{ sec.key }}-{{ it.number }}">
+                                    <option value="" {% if not it.decoy_pulsa or it.decoy_pulsa in ('none', 'default') %}selected{% endif %}>Tanpa decoy</option>
+                                    {% for dn in decoy_names_pulsa %}
+                                    <option value="{{ dn.name }}" {% if it.decoy_pulsa == dn.name %}selected{% endif %}>{{ dn.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </label>
                         <div style="display:flex;gap:8px;margin-top:4px;">
                             <form method="POST" action="/prices-xl/set" class="price-form" id="price-form-{{ sec.key }}-{{ it.number }}">
@@ -179,7 +219,7 @@
         </thead>
         <tbody>
             <tr>
-                <td colspan="4" class="price-hint">Belum ada paket di group ini — <a href="/prices-xl/family/{{ sec.key }}/browse">Browse Package</a> lalu tambahkan yang diinginkan.</td>
+                <td colspan="4" class="price-hint empty-state-td">Belum ada paket di group ini — <a href="/prices-xl/family/{{ sec.key }}/browse">Browse Package</a> lalu tambahkan yang diinginkan.</td>
             </tr>
         </tbody>
         <tfoot>
@@ -202,18 +242,6 @@
         <input type="text" name="family_code" class="form-control price-input" style="width:250px;" placeholder="Family code (UUID)" required>
         <button type="submit" class="btn btn-sm btn-primary">Tambah</button>
     </form>
-    <p class="price-hint" style="margin:8px 0 0;">Group baru otomatis dinamai <span style="color:#15803d;font-weight:600;">{{ next_family_key }}</span></p>
-    <div style="margin-top:14px;border-top:1px solid #eee;padding-top:10px;">
-        <div class="price-hint" style="margin-bottom:6px;">Sembunyikan/tampilkan family di halaman Beli Paket:</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            {% for sec in rows %}
-            <form method="POST" action="/prices-xl/family/toggle" style="display:inline;">
-                <input type="hidden" name="family_key" value="{{ sec.key }}">
-                <button type="submit" class="btn btn-sm btn-outline">{{ sec.key }}</button>
-            </form>
-            {% endfor %}
-        </div>
-    </div>
 </div>
 
 <script>
