@@ -1606,6 +1606,27 @@ def admin_delete_user(
     return RedirectResponse(url="/admin/users", status_code=303)
 
 
+@app.post("/admin/users/login-as")
+def admin_login_as_user(
+    user_id: int = Form(...),
+    admin_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if admin_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    u = db.query(User).filter(User.id == user_id).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan")
+    if u.role != "user":
+        raise HTTPException(status_code=400, detail="Hanya bisa login sebagai pengguna biasa")
+
+    token = create_access_token({"sub": str(u.id), "role": u.role})
+    resp = RedirectResponse(url="/user/dashboard", status_code=303)
+    resp.set_cookie(key="access_token", value=token, httponly=True, samesite="lax",
+                    max_age=int(ACCESS_TOKEN_EXPIRE_MINUTES * 60))
+    return resp
+
+
 @app.post("/admin/balance/decrease")
 def admin_decrease_balance(
     user_id: int = Form(...),

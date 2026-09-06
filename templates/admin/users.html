@@ -175,6 +175,10 @@ document.addEventListener('click', function(e) {
                         <button type="button" class="btn btn-sm btn-outline" onclick="openTopupFor({{ u.id }}, '{{ u.username }}')">Topup</button>
                         <button type="button" class="btn btn-sm btn-outline" onclick="openSetFor({{ u.id }}, '{{ u.username }}')">Set Saldo</button>
                         <button type="button" class="btn btn-sm btn-outline" onclick="openDecreaseFor({{ u.id }}, '{{ u.username }}')">Kurangi Saldo</button>
+                        <form action="/admin/users/login-as" method="POST" style="display:inline;">
+                            <input type="hidden" name="user_id" value="{{ u.id }}">
+                            <button type="submit" class="btn btn-sm btn-outline" title="Masuk sebagai user ini tanpa password">Login as this user</button>
+                        </form>
                         <button type="button" class="btn btn-sm btn-outline" onclick="openDeleteFor({{ u.id }}, '{{ u.username }}')" style="color:#dc2626;border-color:#fecaca;">Delete User</button>
                     </div>
                 </td>
