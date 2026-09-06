@@ -110,7 +110,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <td data-label="" style="text-align:right;">
                     <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
                         <input type="hidden" name="pin_index" value="{{ loop.index }}">
-                        <button type="submit" class="btn btn-sm btn-outline" title="Unpin (hapus pin ini)" style="color:#dc2626;border-color:#fecaca;">Unpin</button>
+                        <button type="submit" class="btn btn-sm btn-outline" title="Hapus dari daftar ini" style="color:#dc2626;border-color:#fecaca;">Hapus</button>
                     </form>
                 </td>
             </tr>
@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 <span class="lbl">Family code (UUID)</span>
                 <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID family XL" required title="UUID family code yang dipin — user bisa browse paketnya tanpa mengetik kode (kode tidak ditampilkan)">
             </label>
-            <button type="submit" class="btn btn-sm btn-primary price-btn">Pin</button>
+            <button type="submit" class="btn btn-sm btn-primary price-btn">Tambah</button>
         </form>
     </div>
 </div>
