@@ -71,17 +71,16 @@ document.addEventListener('DOMContentLoaded', function () {
     <table>
         <thead>
             <tr>
-                <th>Label — Family Code (UUID)</th>
+                <th>Label</th>
+                <th>Family Code (UUID)</th>
                 <th style="text-align:right;"></th>
             </tr>
         </thead>
         <tbody>
             {% for p in custom_buy.pins %}
             <tr>
-                <td data-label="Pin">
-                    <strong>{{ p.label }}</strong>
-                    <span style="font-family:monospace;font-size:13px;color:#4b5563;">— {{ p.family_code }}</span>
-                </td>
+                <td data-label="Label"><strong>{{ p.label }}</strong></td>
+                <td data-label="Family Code" style="font-family:monospace;font-size:13px;">{{ p.family_code }}</td>
                 <td data-label="" style="text-align:right;">
                     <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
                         <input type="hidden" name="pin_index" value="{{ loop.index }}">
@@ -91,7 +90,7 @@ document.addEventListener('DOMContentLoaded', function () {
             </tr>
             {% else %}
             <tr>
-                <td colspan="2"><div class="empty-state" style="display:block;">Belum ada pin.</div></td>
+                <td colspan="3"><div class="empty-state" style="display:block;">Belum ada pin.</div></td>
             </tr>
             {% endfor %}
         </tbody>
