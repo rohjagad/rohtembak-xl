@@ -71,6 +71,7 @@
 <script>
 window.BANNER_SSE = false;
 var PINNED_FC = "";
+var PIN_COUNT = {{ custom_buy.pins|length }};
 var PIN_LABEL = "{{ custom_buy.label }}";
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
@@ -83,7 +84,7 @@ function fmtRp(n) {
   return n.toLocaleString('id-ID') + ' IDR';
 }
 function cardHref(it, mode) {
-  if (mode && mode.pin) return '/user/xl/custom/' + it.number + '/detail?pin=1';
+  if (mode && mode.pin) return '/user/xl/custom/' + it.number + '/detail?pin=' + mode.pin;
   return '/user/xl/custom/' + it.number + '/detail?fc=' + encodeURIComponent(mode ? mode.fc : '');
 }
 function cardHtml(it, mode) {
@@ -127,18 +128,18 @@ function browseFc(fc, mode) {
       box.innerHTML = '';
     });
 }
-function browsePin() {
+function browsePin(idx) {
   var box = document.getElementById('custom-result');
   var err = document.getElementById('custom-error');
   if (err) err.hidden = true;
   setBusy(box);
-  fetch('/user/xl/custom/browse?pin=1', { credentials: 'same-origin' })
+  fetch('/user/xl/custom/browse?pin=' + idx, { credentials: 'same-origin' })
     .then(function(r) { return r.json(); })
     .then(function(res) {
       if (res.ok) {
         var title = document.getElementById('custom-title');
-        if (title) title.textContent = 'Beli Paket Custom — ' + PIN_LABEL;
-        renderGrid(box, res.items, { pin: true });
+        if (title) title.textContent = 'Beli Paket Custom — ' + PIN_LABEL + (PIN_COUNT > 1 ? ' #' + idx : '');
+        renderGrid(box, res.items, { pin: idx });
       } else {
         if (err) { err.textContent = res.error || 'Gagal memuat katalog pin.'; err.hidden = false; }
         box.innerHTML = '';
@@ -160,7 +161,7 @@ function browseFromInput() {
   browseFc(fc, { fc: fc });
 }
 document.addEventListener('DOMContentLoaded', function() {
-  if ('{{ '1' if custom_buy.family_code else '0' }}' === '1') browsePin();
+  if (PIN_COUNT > 0) browsePin(1);
 });
 </script>
 {% endblock %}
@@ -184,12 +185,14 @@ document.addEventListener('DOMContentLoaded', function() {
           <button type="button" class="btn btn-sm btn-primary" onclick="browseFromInput()" style="flex-shrink:0;">Browse</button>
         </div>
       </label>
-      {% if custom_buy.family_code %}
-      <button type="button" class="btn btn-sm btn-success" onclick="browsePin()" style="flex-shrink:0;">{{ custom_buy.label }} — Browse</button>
+      {% if custom_buy.pins %}
+      {% for p in custom_buy.pins %}
+      <button type="button" class="btn btn-sm btn-success" onclick="browsePin({{ loop.index }})" style="flex-shrink:0;">{{ custom_buy.label }}{% if custom_buy.pins|length > 1 %} #{{ loop.index }}{% endif %} — Browse</button>
+      {% endfor %}
       {% endif %}
     </div>
-    {% if custom_buy.family_code %}
-    <div class="pkg-hint" id="pin-active-note" style="margin-bottom:10px;">Pin aktif dari admin: <strong>{{ custom_buy.label }}</strong> — kode pin tidak ditampilkan, tekan tombol di atas untuk brows&amp;nbsp;e.</div>
+    {% if custom_buy.pins %}
+    <div class="pkg-hint" id="pin-active-note" style="margin-bottom:10px;">Pin aktif dari admin: <strong>{{ custom_buy.label }}</strong> ({{ custom_buy.pins|length }} pin) — kode pin tidak ditampilkan, tekan tombol di atas untuk browse.</div>
     {% else %}
     <div class="pkg-hint" style="margin-bottom:10px;">Belum ada pin dari admin. Ketik family code mana pun untuk browse semua opsi paketnya.</div>
     {% endif %}

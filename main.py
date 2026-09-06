@@ -1213,12 +1213,50 @@ def admin_prices_xl_custom_save(
     family_code: str = Form(""),
     user: User = Depends(get_current_user),
 ):
-    """Simpan konfigurasi group permanen Beli Paket Custom (label + family
-    code pin opsional). Group ini tidak bisa dihapus — hanya labelnya yang
-    tampil ke user; family code pin tidak pernah ditampilkan."""
+    """Simpan label tampilan group permanen Beli Paket Custom. family_code
+    diisi hanya untuk backward-compat (mengganti seluruh pin lama dengan satu).
+    """
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
-    _custom_buy_write(label, _valid_custom_family_code(family_code))
+    cur = _custom_buy_read()
+    pins = [family_code] if family_code else (cur.get("pins") or [])
+    _custom_buy_write(label, pins)
+    return RedirectResponse(url="/prices-xl-custom", status_code=303)
+
+
+@app.post("/prices-xl/custom/pin/add")
+def admin_prices_xl_custom_pin_add(
+    family_code: str = Form(""),
+    user: User = Depends(get_current_user),
+):
+    """Pin family code baru — user bisa browse paket keluarga ini tanpa
+    mengetik kodenya (kode pin tidak pernah ditampilkan ke user)."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    fc = _valid_custom_family_code(family_code)
+    if not fc:
+        return RedirectResponse(url="/prices-xl-custom?err=pin", status_code=303)
+    cur = _custom_buy_read()
+    pins = cur.get("pins") or []
+    if fc not in pins:
+        pins = pins + [fc]
+    _custom_buy_write(cur.get("label") or CUSTOM_BUY_LABEL_DEFAULT, pins)
+    return RedirectResponse(url="/prices-xl-custom", status_code=303)
+
+
+@app.post("/prices-xl/custom/pin/delete")
+def admin_prices_xl_custom_pin_delete(
+    pin_index: int = Form(...),
+    user: User = Depends(get_current_user),
+):
+    """Unpin (hapus) satu family code pin."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    cur = _custom_buy_read()
+    pins = cur.get("pins") or []
+    if 1 <= pin_index <= len(pins):
+        pins = [p for i, p in enumerate(pins) if i + 1 != pin_index]
+        _custom_buy_write(cur.get("label") or CUSTOM_BUY_LABEL_DEFAULT, pins)
     return RedirectResponse(url="/prices-xl-custom", status_code=303)
 
 
@@ -2759,12 +2797,16 @@ def _validate_restore_settings(raw) -> dict | None:
 
     cb = raw.get("custom_buy")
     if isinstance(cb, dict):
-        fc = _valid_custom_family_code(str(cb.get("family_code") or ""))
+        pins = _norm_custom_pins(cb.get("pins"))
+        if not pins:
+            fc = _valid_custom_family_code(str(cb.get("family_code") or ""))
+            if fc:
+                pins = [fc]
         label = str(cb.get("label") or "").strip()[:100]
-        if label or fc:
+        if label or pins:
             out["custom_buy"] = {
                 "label": label or CUSTOM_BUY_LABEL_DEFAULT,
-                "family_code": fc,
+                "pins": pins,
             }
 
     return out or None
@@ -2817,7 +2859,7 @@ def _apply_restore_settings(valid_settings: dict) -> list:
 
     cb = valid_settings.get("custom_buy")
     if isinstance(cb, dict):
-        _custom_buy_write(cb.get("label") or CUSTOM_BUY_LABEL_DEFAULT, cb.get("family_code") or "")
+        _custom_buy_write(cb.get("label") or CUSTOM_BUY_LABEL_DEFAULT, cb.get("pins") or [])
         applied.append("Beli Paket Custom")
 
     if touched_state:
@@ -3875,28 +3917,47 @@ def _custom_buy_path():
     return os.path.join(BASE_DIR, "data", "custom_buy.json")
 
 
+def _norm_custom_pins(raw) -> list:
+    """Normalisasi daftar family code pin (strip, validasi, dedupe)."""
+    vals = raw if isinstance(raw, list) else []
+    pins = []
+    seen = set()
+    for v in vals:
+        fc = _valid_custom_family_code(str(v or ""))
+        if fc and fc not in seen:
+            pins.append(fc)
+            seen.add(fc)
+    return pins
+
+
 def _custom_buy_read() -> dict:
     try:
         with open(_custom_buy_path(), "r", encoding="utf-8") as f:
             d = json.load(f)
         if not isinstance(d, dict):
             raise ValueError
-        return {
-            "label": str(d.get("label") or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
-            "family_code": str(d.get("family_code") or "").strip()[:64],
-        }
     except (OSError, ValueError):
-        return {"label": CUSTOM_BUY_LABEL_DEFAULT, "family_code": ""}
+        d = {}
+    pins = _norm_custom_pins(d.get("pins"))
+    old = _valid_custom_family_code(str(d.get("family_code") or ""))
+    if not pins and old:
+        pins = [old]
+    return {
+        "label": str(d.get("label") or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
+        "pins": pins,
+        # Backward-compat: kode pin pertama tetap diekspos sebagai family_code.
+        "family_code": pins[0] if pins else "",
+    }
 
 
-def _custom_buy_write(label: str, family_code: str):
+def _custom_buy_write(label: str, pins: list):
     path = _custom_buy_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump({
                 "label": str(label or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
-                "family_code": str(family_code or "").strip()[:64],
+                "pins": _norm_custom_pins(pins),
             }, f, ensure_ascii=False)
     except OSError as e:
         print(f"[custom-buy] gagal simpan: {e}")
@@ -4342,10 +4403,13 @@ def _parse_custom_rw(rw):
 
 
 def _resolve_custom_fc(fc: str, pin: int = 0) -> str | None:
-    """Family code untuk alur custom. pin=1 memakai kode pin konfigurasi admin —
-    kode pin TIDAK pernah dikirim ke klien, hanya label yang tampil ke user."""
+    """Family code untuk alur custom. pin=N memakai pin ke-N dari konfigurasi
+    admin — kode pin TIDAK pernah dikirim ke klien, hanya label yang tampil.
+    pin di luar jangkauan fallback ke pin pertama (ramah kalau admin unpin
+    saat user masih memakai index lama)."""
     if pin:
-        fc = _custom_buy_read().get("family_code") or ""
+        pins = _custom_buy_read().get("pins") or []
+        fc = pins[pin - 1] if 1 <= pin <= len(pins) else (pins[0] if pins else "")
     fc = _valid_custom_family_code(fc)
     return fc
 
@@ -4510,11 +4574,12 @@ def user_xl_custom_detail_page(request: Request, n: int, fc: str = "", pin: int 
         "family": CUSTOM_FAMILY_KEY,
         "n": n,
         "pin_mode": pin_mode,
+        "pin": pin,
         "fc": fc if not pin_mode else "",
         "custom_buy": _custom_cfg(),
     })
     if pin_mode:
-        if not _resolve_custom_fc("", 1):
+        if not _resolve_custom_fc("", pin):
             return RedirectResponse(url="/user/xl/custom", status_code=303)
     elif not _valid_custom_family_code(fc):
         return RedirectResponse(url="/user/xl/custom", status_code=303)
@@ -4531,7 +4596,7 @@ def user_xl_custom_checkout(request: Request, n: int, method: str, fc: str = "",
     family_code = _resolve_custom_fc(fc, pin)
     if not family_code:
         return RedirectResponse(url="/user/xl/custom", status_code=303)
-    back_qs = f"?pin=1" if pin else f"?fc={family_code}"
+    back_qs = f"?pin={pin}" if pin else f"?fc={family_code}"
     db = next(get_db())
     ctx = get_user_context(user, db)
     db.close()
@@ -4552,8 +4617,8 @@ def user_xl_custom_checkout(request: Request, n: int, method: str, fc: str = "",
         detail["rewrite_price"] = charge
     cc = _custom_checkout_context(active_xl, user, detail, method, family_code, charge)
     if pin:
-        cc["pay_url"] = f"/user/xl/custom/{n}/pay/{method}?pin=1&rw=" + (str(charge) if charge is not None else "")
-        cc["back_url"] = f"/user/xl/custom/{n}/detail?pin=1"
+        cc["pay_url"] = f"/user/xl/custom/{n}/pay/{method}?pin={pin}&rw=" + (str(charge) if charge is not None else "")
+        cc["back_url"] = f"/user/xl/custom/{n}/detail?pin={pin}"
     ctx.update({"request": request, **cc})
     return render("user/checkout.html", context=ctx)
 

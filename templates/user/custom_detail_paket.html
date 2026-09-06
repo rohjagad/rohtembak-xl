@@ -68,8 +68,9 @@ window.BANNER_SSE = false;
 var DETAIL_FC = "{{ fc }}";
 var DETAIL_N = {{ n }};
 var PIN_MODE = {{ 'true' if pin_mode else 'false' }};
+var PIN_IDX = {{ pin if pin_mode else 0 }};
 var DETAIL_URL = PIN_MODE
-  ? '/user/xl/custom/detail?pin=1&n=' + DETAIL_N
+  ? '/user/xl/custom/detail?pin=' + PIN_IDX + '&n=' + DETAIL_N
   : '/user/xl/custom/detail?fc=' + encodeURIComponent(DETAIL_FC) + '&n=' + DETAIL_N;
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
@@ -126,7 +127,7 @@ function benefitCards(benefits) {
 }
 function payHref(method) {
   var rw = document.getElementById('reprice').value.trim();
-  var q = PIN_MODE ? '?pin=1' : '?fc=' + encodeURIComponent(DETAIL_FC);
+  var q = PIN_MODE ? '?pin=' + PIN_IDX : '?fc=' + encodeURIComponent(DETAIL_FC);
   if (rw) q += '&rw=' + encodeURIComponent(rw);
   return '/user/xl/custom/' + DETAIL_N + '/checkout/' + method + q;
 }

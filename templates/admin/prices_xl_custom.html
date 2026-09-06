@@ -6,9 +6,10 @@
 .price-form label { display: flex; flex-direction: column; gap: 4px; }
 .price-form .lbl { font-size: 12px; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: .5px; }
 .price-input { width: 200px; }
+.price-form .price-btn { flex-shrink: 0; width: auto; }
 @media (max-width: 700px) {
   .price-input { width: 100%; }
-  .price-form .btn { width: 100%; }
+  .price-form .price-btn { width: auto; }
   table thead { display: none; }
   table, tbody, tr, td { display: block; width: 100%; }
   tr {
@@ -60,6 +61,10 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
 </div>
 
+{% if request.query_params.get('err') == 'pin' %}
+<div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;">Family code pin tidak valid — gunakan kode family XL (8-64 karakter, huruf/angka/tanda hubung).</div>
+{% endif %}
+
 <div class="card">
     <h2 style="font-size:16px;margin-bottom:12px;">Group Paket Custom</h2>
     <table>
@@ -73,7 +78,23 @@ document.addEventListener('DOMContentLoaded', function () {
         <tbody>
             <tr>
                 <td data-label="Label Tampilan"><strong>{{ custom_buy.label }}</strong></td>
-                <td data-label="Family Code Pin" style="font-family:monospace;">{{ custom_buy.family_code or '-' }}</td>
+                <td data-label="Family Code Pin">
+                    {% if custom_buy.pins %}
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                        {% for p in custom_buy.pins %}
+                        <span style="display:inline-flex;align-items:center;gap:4px;border:1px solid #d1d5db;border-radius:999px;padding:2px 4px 2px 12px;font-family:monospace;font-size:12px;background:#f9fafb;">
+                            Pin {{ loop.index }}
+                            <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
+                                <input type="hidden" name="pin_index" value="{{ loop.index }}">
+                                <button type="submit" class="btn btn-sm" title="Unpin (hapus pin ini)" style="border:none;background:transparent;color:#dc2626;font-size:16px;line-height:1;padding:2px 6px;cursor:pointer;">&times;</button>
+                            </form>
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <span style="color:#9ca3af;font-size:13px;">Belum ada pin.</span>
+                    {% endif %}
+                </td>
                 <td data-label="" style="text-align:right;">
                     <button type="button" class="btn btn-sm btn-outline custom-edit-toggle" data-key="custom" title="Ubah label atau pin">Edit</button>
                 </td>
@@ -85,11 +106,16 @@ document.addEventListener('DOMContentLoaded', function () {
                             <span class="lbl">Label tampilan</span>
                             <input type="text" name="label" class="form-control price-input" value="{{ custom_buy.label }}" maxlength="100" required title="Label yang dilihat user di Beli Paket">
                         </label>
+                        <button type="submit" class="btn btn-sm btn-primary price-btn">Simpan Label</button>
+                    </form>
+                    <div style="border-top:1px solid #e5e7eb;margin:14px 0 12px;"></div>
+                    <div class="lbl" style="margin-bottom:6px;">Tambah pin baru</div>
+                    <form method="POST" action="/prices-xl/custom/pin/add" class="price-form">
                         <label>
-                            <span class="lbl">Family code pin (opsional)</span>
-                            <input type="text" name="family_code" class="form-control price-input" value="{{ custom_buy.family_code }}" maxlength="64" placeholder="UUID family code (opsional)">
+                            <span class="lbl">Family code pin</span>
+                            <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID / kode family XL" required title="Family code XL yang dipin — user bisa browse tanpa mengetik, kode tidak ditampilkan">
                         </label>
-                        <button type="submit" class="btn btn-sm btn-primary">Simpan</button>
+                        <button type="submit" class="btn btn-sm btn-primary price-btn">Pin</button>
                     </form>
                 </td>
             </tr>
