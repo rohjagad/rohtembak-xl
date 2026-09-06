@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <div class="header-section">
     <div>
         <div class="page-title">Atur Paket XL (Custom)</div>
-        <div class="page-subtitle">Group permanen Beli Paket Custom</div>
+        <div class="page-subtitle">Kelola label tampilan &amp; family code pin group custom</div>
     </div>
 </div>
 
@@ -65,7 +65,6 @@ document.addEventListener('DOMContentLoaded', function () {
     <table>
         <thead>
             <tr>
-                <th>Group</th>
                 <th>Label Tampilan</th>
                 <th>Family Code Pin</th>
                 <th></th>
@@ -73,15 +72,14 @@ document.addEventListener('DOMContentLoaded', function () {
         </thead>
         <tbody>
             <tr>
-                <td data-label="Group"><strong>Beli Paket Custom</strong></td>
-                <td data-label="Label Tampilan">{{ custom_buy.label }}</td>
+                <td data-label="Label Tampilan"><strong>{{ custom_buy.label }}</strong></td>
                 <td data-label="Family Code Pin" style="font-family:monospace;">{{ custom_buy.family_code or '-' }}</td>
                 <td data-label="" style="text-align:right;">
                     <button type="button" class="btn btn-sm btn-outline custom-edit-toggle" data-key="custom" title="Ubah label atau pin">Edit</button>
                 </td>
             </tr>
             <tr class="edit-row" data-edit="custom" hidden>
-                <td colspan="4" style="background:#fafafa;">
+                <td colspan="3" style="background:#fafafa;">
                     <form method="POST" action="/prices-xl/custom/save" class="price-form">
                         <label>
                             <span class="lbl">Label tampilan</span>
