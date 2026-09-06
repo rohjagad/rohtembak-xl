@@ -1207,31 +1207,15 @@ def admin_prices_xl_family_toggle(
     return RedirectResponse(url="/prices-xl", status_code=303)
 
 
-@app.post("/prices-xl/custom/save")
-def admin_prices_xl_custom_save(
-    label: str = Form(""),
-    family_code: str = Form(""),
-    user: User = Depends(get_current_user),
-):
-    """Simpan label tampilan group permanen Beli Paket Custom. family_code
-    diisi hanya untuk backward-compat (mengganti seluruh pin lama dengan satu).
-    """
-    if user.role != "admin":
-        return RedirectResponse(url="/user/dashboard", status_code=303)
-    cur = _custom_buy_read()
-    pins = [family_code] if family_code else (cur.get("pins") or [])
-    _custom_buy_write(label, pins)
-    return RedirectResponse(url="/prices-xl-custom", status_code=303)
-
-
 @app.post("/prices-xl/custom/pin/add")
 def admin_prices_xl_custom_pin_add(
     label: str = Form(""),
     family_code: str = Form(""),
     user: User = Depends(get_current_user),
 ):
-    """Pin family code (UUID) baru dengan label — user bisa browse paket
-    keluarga ini tanpa mengetik kodenya (kode pin tidak pernah ditampilkan)."""
+    """Tambah family code (UUID) terpin dengan label (mis. Xtra Combo Plus) —
+    user bisa browse paket keluarga ini tanpa mengetik kodenya (kode pin
+    tidak pernah ditampilkan)."""
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
     fc = _valid_custom_family_code(family_code)
@@ -1242,10 +1226,10 @@ def admin_prices_xl_custom_pin_add(
     lbl = str(label or "").strip()[:100]
     if fc not in {p["family_code"] for p in pins}:
         pins = pins + [{
-            "label": lbl or cur.get("label") or CUSTOM_BUY_LABEL_DEFAULT,
+            "label": lbl or CUSTOM_BUY_LABEL_DEFAULT,
             "family_code": fc,
         }]
-    _custom_buy_write(cur.get("label") or CUSTOM_BUY_LABEL_DEFAULT, pins)
+    _custom_buy_write(pins)
     return RedirectResponse(url="/prices-xl-custom", status_code=303)
 
 
@@ -1254,14 +1238,14 @@ def admin_prices_xl_custom_pin_delete(
     pin_index: int = Form(...),
     user: User = Depends(get_current_user),
 ):
-    """Unpin (hapus) satu family code pin."""
+    """Hapus satu family code terpin."""
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
     cur = _custom_buy_read()
     pins = cur.get("pins") or []
     if 1 <= pin_index <= len(pins):
         pins = [p for i, p in enumerate(pins) if i + 1 != pin_index]
-        _custom_buy_write(cur.get("label") or CUSTOM_BUY_LABEL_DEFAULT, pins)
+        _custom_buy_write(pins)
     return RedirectResponse(url="/prices-xl-custom", status_code=303)
 
 
@@ -2864,7 +2848,7 @@ def _apply_restore_settings(valid_settings: dict) -> list:
 
     cb = valid_settings.get("custom_buy")
     if isinstance(cb, dict):
-        _custom_buy_write(cb.get("label") or CUSTOM_BUY_LABEL_DEFAULT, cb.get("pins") or [])
+        _custom_buy_write(cb.get("pins") or [])
         applied.append("Beli Paket Custom")
 
     if touched_state:
@@ -3955,21 +3939,21 @@ def _custom_buy_read() -> dict:
     if not pins and old:
         pins = [{"label": CUSTOM_BUY_LABEL_DEFAULT, "family_code": old}]
     return {
-        "label": str(d.get("label") or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
+        "label": CUSTOM_BUY_LABEL_DEFAULT,
         "pins": pins,
         # Backward-compat: family code pin pertama tetap diekspos sebagai family_code.
         "family_code": pins[0]["family_code"] if pins else "",
     }
 
 
-def _custom_buy_write(label: str, pins: list):
+def _custom_buy_write(pins: list):
     path = _custom_buy_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             json.dump({
-                "label": str(label or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
-                "pins": _norm_custom_pins(pins, label or CUSTOM_BUY_LABEL_DEFAULT),
+                "label": CUSTOM_BUY_LABEL_DEFAULT,
+                "pins": _norm_custom_pins(pins, CUSTOM_BUY_LABEL_DEFAULT),
             }, f, ensure_ascii=False)
     except OSError as e:
         print(f"[custom-buy] gagal simpan: {e}")
