@@ -4256,8 +4256,6 @@ def user_xl_beli_paket(request: Request, user: User = Depends(get_current_user))
         "family_name": _family_label("xcp"),
         "sections": sections,
         "url_prefixes": {k: v["url_prefix"] for k, v in _active_families().items()},
-        "custom_buy": _custom_cfg(),
-        "custom_url": "/user/xl/custom",
     })
     return render("user/beli_paket.html", context=ctx)
 
