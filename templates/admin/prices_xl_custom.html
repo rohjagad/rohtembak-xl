@@ -96,14 +96,17 @@ document.addEventListener('DOMContentLoaded', function () {
     <table>
         <thead>
             <tr>
-                <th>Family Code (UUID)</th>
+                <th>Label — Family Code (UUID)</th>
                 <th style="text-align:right;"></th>
             </tr>
         </thead>
         <tbody>
             {% for p in custom_buy.pins %}
             <tr>
-                <td data-label="Family Code" style="font-family:monospace;font-size:13px;">{{ p }}</td>
+                <td data-label="Pin">
+                    <strong>{{ p.label }}</strong>
+                    <span style="font-family:monospace;font-size:13px;color:#4b5563;">— {{ p.family_code }}</span>
+                </td>
                 <td data-label="" style="text-align:right;">
                     <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
                         <input type="hidden" name="pin_index" value="{{ loop.index }}">
@@ -122,6 +125,10 @@ document.addEventListener('DOMContentLoaded', function () {
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid #eee;">
         <button type="button" id="toggle-add" class="btn btn-sm btn-outline">+ Add Pin</button>
         <form id="add-pin-form" method="POST" action="/prices-xl/custom/pin/add" class="price-form" hidden style="margin-top:12px;">
+            <label>
+                <span class="lbl">Label</span>
+                <input type="text" name="label" class="form-control price-input" maxlength="100" placeholder="mis. Paket Hemat" title="Nama pin yang dilihat user di Beli Paket">
+            </label>
             <label>
                 <span class="lbl">Family code (UUID)</span>
                 <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID family XL" required title="UUID family code yang dipin — user bisa browse paketnya tanpa mengetik kode (kode tidak ditampilkan)">
