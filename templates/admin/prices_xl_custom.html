@@ -45,10 +45,22 @@ document.addEventListener('DOMContentLoaded', function () {
       var row = document.querySelector('.edit-row[data-edit="' + btn.dataset.key + '"]');
       if (row) {
         row.hidden = !row.hidden;
-        btn.textContent = row.hidden ? "Edit" : "Tutup";
+        btn.textContent = row.hidden ? "Edit Label" : "Tutup";
       }
     });
   });
+  var addBtn = document.getElementById('toggle-add');
+  if (addBtn) {
+    addBtn.addEventListener('click', function () {
+      var form = document.getElementById('add-pin-form');
+      form.hidden = !form.hidden;
+      addBtn.textContent = form.hidden ? "+ Add Pin" : "Tutup";
+      if (!form.hidden) {
+        var fc = form.querySelector('[name="family_code"]');
+        if (fc) fc.focus();
+      }
+    });
+  }
 });
 </script>
 {% endblock %}
@@ -57,7 +69,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <div class="header-section">
     <div>
         <div class="page-title">Atur Paket XL (Custom)</div>
-        <div class="page-subtitle">Kelola label grup &amp; pin family code</div>
+        <div class="page-subtitle">Pin family code grup {{ custom_buy.label }}</div>
     </div>
 </div>
 
@@ -66,51 +78,20 @@ document.addEventListener('DOMContentLoaded', function () {
 {% endif %}
 
 <div class="card">
-    <h2 style="font-size:16px;margin-bottom:12px;">Group Paket Custom</h2>
     <table>
         <thead>
             <tr>
-                <th>Label Tampilan</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td data-label="Label Tampilan"><strong>{{ custom_buy.label }}</strong></td>
-                <td data-label="" style="text-align:right;">
-                    <button type="button" class="btn btn-sm btn-outline custom-edit-toggle" data-key="custom" title="Ubah label tampilan grup">Edit</button>
-                </td>
-            </tr>
-            <tr class="edit-row" data-edit="custom" hidden>
-                <td colspan="2" style="background:#fafafa;">
-                    <form method="POST" action="/prices-xl/custom/save" class="price-form">
-                        <label>
-                            <span class="lbl">Label tampilan</span>
-                            <input type="text" name="label" class="form-control price-input" value="{{ custom_buy.label }}" maxlength="100" required title="Label yang dilihat user di Beli Paket">
-                        </label>
-                        <button type="submit" class="btn btn-sm btn-primary price-btn">Simpan Label</button>
-                    </form>
-                </td>
-            </tr>
-        </tbody>
-    </table>
-</div>
-
-<div class="card" style="margin-top:16px;">
-    <h2 style="font-size:16px;margin-bottom:12px;">Family Code Pin</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Label</th>
-                <th>Family Code</th>
-                <th></th>
+                <th>Label — Family Code</th>
+                <th style="text-align:right;">{{ custom_buy.label }}</th>
             </tr>
         </thead>
         <tbody>
             {% for p in custom_buy.pins %}
             <tr>
-                <td data-label="Label">{{ p.label }}</td>
-                <td data-label="Family Code" style="font-family:monospace;">{{ p.family_code }}</td>
+                <td data-label="Pin">
+                    <strong>{{ p.label }}</strong>
+                    <span style="font-family:monospace;font-size:13px;color:#4b5563;">— {{ p.family_code }}</span>
+                </td>
                 <td data-label="" style="text-align:right;">
                     <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
                         <input type="hidden" name="pin_index" value="{{ loop.index }}">
@@ -120,25 +101,39 @@ document.addEventListener('DOMContentLoaded', function () {
             </tr>
             {% else %}
             <tr>
-                <td colspan="3"><div class="empty-state" style="display:block;">Belum ada pin.</div></td>
+                <td colspan="2"><div class="empty-state" style="display:block;">Belum ada pin.</div></td>
             </tr>
             {% endfor %}
+            <tr>
+                <td colspan="2" style="background:#fafafa;">
+                    <div class="edit-row" data-edit="custom" hidden>
+                        <form method="POST" action="/prices-xl/custom/save" class="price-form" style="margin-bottom:12px;">
+                            <label>
+                                <span class="lbl">Label tampilan</span>
+                                <input type="text" name="label" class="form-control price-input" value="{{ custom_buy.label }}" maxlength="100" required title="Label yang dilihat user di Beli Paket">
+                            </label>
+                            <button type="submit" class="btn btn-sm btn-primary price-btn">Simpan Label</button>
+                        </form>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                        <button type="button" id="toggle-add" class="btn btn-sm btn-outline">+ Add Pin</button>
+                        <button type="button" class="btn btn-sm btn-outline custom-edit-toggle" data-key="custom" title="Ubah label tampilan grup">Edit Label</button>
+                    </div>
+                    <form id="add-pin-form" method="POST" action="/prices-xl/custom/pin/add" class="price-form" hidden style="margin-top:12px;">
+                        <label>
+                            <span class="lbl">Label</span>
+                            <input type="text" name="label" class="form-control price-input" maxlength="100" placeholder="mis. Paket Hemat" title="Nama yang dilihat user di halaman Beli Paket">
+                        </label>
+                        <label>
+                            <span class="lbl">Family code</span>
+                            <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID / kode family XL" required title="Family code XL yang dipin — user bisa browse tanpa mengetik kodenya (kode tidak ditampilkan)">
+                        </label>
+                        <button type="submit" class="btn btn-sm btn-primary price-btn">Pin</button>
+                    </form>
+                </td>
+            </tr>
         </tbody>
     </table>
-    <div style="margin-top:16px;padding-top:14px;border-top:1px solid #eee;">
-        <div class="lbl" style="margin-bottom:6px;">Tambah pin baru</div>
-        <form method="POST" action="/prices-xl/custom/pin/add" class="price-form">
-            <label>
-                <span class="lbl">Label</span>
-                <input type="text" name="label" class="form-control price-input" maxlength="100" placeholder="mis. Paket Hemat" title="Nama yang dilihat user di halaman Beli Paket">
-            </label>
-            <label>
-                <span class="lbl">Family code</span>
-                <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID / kode family XL" required title="Family code XL yang dipin — user bisa browse tanpa mengetik kodenya (kode tidak ditampilkan)">
-            </label>
-            <button type="submit" class="btn btn-sm btn-primary price-btn">Pin</button>
-        </form>
-    </div>
 </div>
 
 <a href="/prices-xl" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Atur Paket XL</a>
