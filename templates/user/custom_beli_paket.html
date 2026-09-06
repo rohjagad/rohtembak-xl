@@ -53,10 +53,17 @@
   background: #fef2f2; border: 1px solid #fecaca;
   border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
 }
-.pkg-loading, .pkg-hint { font-size: .85rem; color: #6b7280; }
-.custom-form { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 4px; }
-.custom-form label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px; max-width: 480px; }
-.custom-form .lbl { font-weight: 600; font-size: 12px; color: #111827; }
+.pkg-loading { font-size: .85rem; color: #6b7280; }
+.custom-form { margin-bottom: 8px; }
+.custom-form .lbl, .custom-pins .lbl {
+  display: block; font-weight: 600; font-size: 12px; color: #111827;
+  text-transform: uppercase; letter-spacing: .5px; margin: 0 0 6px;
+}
+.custom-fc-row { display: flex; gap: 8px; max-width: 520px; }
+.custom-fc-row input { flex: 1; min-width: 0; }
+.custom-pins { margin-bottom: 14px; }
+.custom-pin-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.pkg-hint { margin: 10px 0; color: #6b7280; font-size: .85rem; }
 .skel-spinner {
   width: 28px; height: 28px;
   border: 3px solid rgba(0,0,0,0.1);
@@ -170,38 +177,39 @@ document.addEventListener('DOMContentLoaded', function() {
 {% if active_xl %}
 {% set banner_title = "Beli Paket Custom" %}
 {% include "user/_banner.html" %}
-{% else %}
-<div class="page-title">Beli Paket Custom</div>
 {% endif %}
 
 <div class="pkg-section">
   <div class="pkg-title" id="custom-title">{{ custom_buy.label }}</div>
   <div class="body-wrap">
-    <div class="custom-form">
-      <label>
-        <span class="lbl">Family code</span>
-        <div style="display:flex;gap:8px;width:100%;">
-          <input type="text" id="custom-fc" class="form-control" placeholder="Ketik family code lain (opsional)" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();browseFromInput();}">
-          <button type="button" class="btn btn-sm btn-primary" onclick="browseFromInput()" style="flex-shrink:0;">Browse</button>
-        </div>
-      </label>
-      {% if custom_buy.pins %}
-      {% for p in custom_buy.pins %}
-      <button type="button" class="btn btn-sm btn-success" onclick="browsePin({{ loop.index }})" style="flex-shrink:0;">{{ p.label }} — Browse</button>
-      {% endfor %}
-      {% endif %}
-    </div>
     {% if custom_buy.pins %}
-    <div class="pkg-hint" id="pin-active-note" style="margin-bottom:10px;">Pin aktif dari admin: <strong>{{ custom_buy.label }}</strong> ({{ custom_buy.pins|length }} pin) — kode pin tidak ditampilkan, tekan tombol di atas untuk browse.</div>
-    {% else %}
-    <div class="pkg-hint" style="margin-bottom:10px;">Belum ada pin dari admin. Ketik family code mana pun untuk browse semua opsi paketnya.</div>
+    <div class="custom-pins">
+      <div class="lbl">Pin dari admin</div>
+      <div class="custom-pin-row">
+        {% for p in custom_buy.pins %}
+        <button type="button" class="btn btn-sm btn-outline" onclick="browsePin({{ loop.index }})">{{ p.label }} &rarr; Browse</button>
+        {% endfor %}
+      </div>
+    </div>
     {% endif %}
+
+    <div class="custom-form">
+      <label class="lbl" for="custom-fc">Family code</label>
+      <div class="custom-fc-row">
+        <input type="text" id="custom-fc" class="form-control" placeholder="Ketik family code XL" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();browseFromInput();}">
+        <button type="button" class="btn btn-sm btn-primary" onclick="browseFromInput()" style="flex-shrink:0;">Browse</button>
+      </div>
+    </div>
+
+    <div class="pkg-hint">
+      {% if custom_buy.pins %}Pilih pin dari admin di atas, atau ketik family code mana pun — kode pin tidak ditampilkan.{% else %}Belum ada pin dari admin. Ketik family code mana pun untuk browse semua opsi paketnya.{% endif %}
+    </div>
 
     <div id="custom-error" class="pkg-error" hidden></div>
     <div id="custom-result"><div class="pkg-empty">Ketik family code lalu tekan Browse untuk memuat paket.</div></div>
   </div>
 </div>
 
-<a href="/user/dashboard" class="btn btn-outline btn-sm">&larr; Kembali</a>
+<a href="/user/dashboard" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali</a>
 
 {% endblock %}
