@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}Detail Paket Custom - RohTembak (XL){% endblock %}
+{% block head %}
+<style>
+.section-divider { height: 1px; background: #e0e0e0; margin: 0 -24px; }
+.pay-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 640px) { .pay-grid { grid-template-columns: 1fr 1fr; } }
+.pay-btn {
+  display: block; width: 100%; padding: 14px; border-radius: 10px;
+  border: 1px solid #e0e0e0; background: #fff; cursor: pointer;
+  text-align: center; font-size: .9rem; font-weight: 600; color: #222;
+  text-decoration: none; box-sizing: border-box;
+  transition: border-color .15s, box-shadow .15s;
+}
+.pay-btn:hover { border-color: #2563eb; box-shadow: 0 1px 6px rgba(37,99,235,.15); }
+.pay-btn .sub { font-size: .75rem; font-weight: 400; color: #888; display: block; margin-top: 2px; }
+.pay-btn.disabled { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; border-color: #e5e7eb; }
+.dl { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: .9rem; }
+.dl .dt { color: #666; }
+.dl .dd { font-weight: 600; color: #111; text-align: right; }
+.tnc-box {
+  background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px;
+  padding: 12px; font-size: .8rem; color: #444; max-height: 300px; overflow-y: auto;
+  line-height: 1.5;
+}
+.tnc-box p { margin: 6px 0; }
+.reprice-box {
+  background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px;
+  padding: 14px; margin: 14px 0 0;
+}
+.reprice-box .lbl { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #166534; }
+.detail-loading {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 260px; gap: 14px;
+}
+.skel-spinner {
+  width: 32px; height: 32px;
+  border: 3px solid rgba(0,0,0,0.1);
+  border-top-color: #4361ee;
+  border-radius: 50%;
+  opacity: 0;
+  animation-name: cd-spin, cd-fadein;
+  animation-duration: .8s, .3s;
+  animation-timing-function: linear, ease-out;
+  animation-iteration-count: infinite, 1;
+  animation-fill-mode: forwards;
+}
+@keyframes cd-spin { to { transform: rotate(360deg); } }
+@keyframes cd-fadein { from { opacity: 0; } to { opacity: 1; } }
+.detail-loading-text { font-size: .85rem; color: #888; }
+.collapse-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 0; }
+.collapse-header h3 { margin: 0; font-size: .85rem; text-transform: uppercase; letter-spacing: .5px; color: #888; }
+.collapse-header .chev {
+  display: inline-block; width: 10px; height: 10px;
+  border-right: 2px solid #888; border-bottom: 2px solid #888;
+  transform: rotate(45deg); transition: transform .2s;
+}
+.collapse-header .chev.up { transform: rotate(-135deg); }
+.collapse-body { display: block; padding-top: 12px; }
+.collapse-body.collapsed { display: none; }
+.benefit-card { background: #f8f9fa; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+.benefit-card .bname { font-weight: 600; font-size: .9rem; color: #222; }
+.benefit-card .bdetail { font-size: .8rem; color: #555; margin-top: 2px; }
+.benefit-card .btotal { font-size: .85rem; font-weight: 600; color: #059669; margin-top: 4px; }
+</style>
+<script>
+window.BANNER_SSE = false;
+var DETAIL_FC = "{{ fc }}";
+var DETAIL_N = {{ n }};
+var PIN_MODE = {{ 'true' if pin_mode else 'false' }};
+var DETAIL_URL = PIN_MODE
+  ? '/user/xl/custom/detail?pin=1&n=' + DETAIL_N
+  : '/user/xl/custom/detail?fc=' + encodeURIComponent(DETAIL_FC) + '&n=' + DETAIL_N;
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function sanitizeTnc(html) {
+  var t = document.createElement('template');
+  t.innerHTML = html || '';
+  var removeTags = {SCRIPT:1,STYLE:1,IFRAME:1,OBJECT:1,EMBED:1,LINK:1,META:1,FORM:1,INPUT:1,BUTTON:1,TEXTAREA:1,SELECT:1,VIDEO:1,AUDIO:1,SOURCE:1};
+  var okTags = {B:1,STRONG:1,I:1,EM:1,U:1,S:1,BR:1,P:1,DIV:1,SPAN:1,UL:1,OL:1,LI:1,H1:1,H2:1,H3:1,H4:1,H5:1,H6:1,SMALL:1,HR:1,TABLE:1,THEAD:1,TBODY:1,TR:1,TD:1,TH:1};
+  t.content.querySelectorAll('*').forEach(function(el) {
+    if (removeTags[el.tagName]) { el.remove(); return; }
+    if (!okTags[el.tagName]) {
+      while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+      el.remove();
+      return;
+    }
+    Array.prototype.slice.call(el.attributes).forEach(function(a) { el.removeAttribute(a.name); });
+  });
+  return t.innerHTML;
+}
+function fmtRp(v) {
+  v = Number(v);
+  if (isNaN(v)) return '';
+  return v.toLocaleString('id-ID') + ' IDR';
+}
+function fmtQuota(v) {
+  v = Number(v);
+  var GB = 1024 * 1024 * 1024, MB = 1024 * 1024, KB = 1024;
+  if (v >= GB) return (v / GB).toFixed(2) + ' GB';
+  if (v >= MB) return (v / MB).toFixed(2) + ' MB';
+  if (v >= KB) return (v / KB).toFixed(2) + ' KB';
+  return v + ' B';
+}
+function benefitTotal(b) {
+  switch (b.data_type) {
+    case 'DATA': return fmtQuota(b.total);
+    case 'VOICE': return Math.floor(b.total / 60) + ' menit';
+    case 'TEXT': return b.total + ' SMS';
+    default: return b.total + ' ' + (b.data_type || '');
+  }
+}
+function benefitCards(benefits) {
+  var h = '';
+  (benefits || []).forEach(function(b) {
+    if (b.total && b.total > 0) {
+      h += '<div class="benefit-card"><div class="bname">' + esc(b.name) + '</div>';
+      h += '<div class="bdetail">Tipe: ' + esc(b.data_type) + (b.information ? ' &middot; ' + esc(b.information) : '') + (b.is_unlimited ? ' &middot; Unlimited' : '') + '</div>';
+      h += '<div class="btotal">' + benefitTotal(b) + '</div></div>';
+    }
+  });
+  return h;
+}
+function payHref(method) {
+  var rw = document.getElementById('reprice').value.trim();
+  var q = PIN_MODE ? '?pin=1' : '?fc=' + encodeURIComponent(DETAIL_FC);
+  if (rw) q += '&rw=' + encodeURIComponent(rw);
+  return '/user/xl/custom/' + DETAIL_N + '/checkout/' + method + q;
+}
+function renderDetail(d) {
+  var h = '<div class="card" style="padding:0;overflow:hidden;">';
+  var apiPrice = Number(d.price) || 0;
+  h += '<div style="padding:20px 24px;">';
+  h += '<div style="font-size:.75rem;color:#999;margin-bottom:10px;">#' + DETAIL_N + ' &middot; ' + esc(d.variant_name) + '</div>';
+  h += '<div style="font-size:1.2rem;font-weight:700;color:#222;">' + esc(d.option_name) + '</div>';
+  h += '<div style="font-size:1.3rem;font-weight:700;color:#059669;margin:4px 0 0;">Harga API: ' + fmtRp(apiPrice) + '</div>';
+  h += '<div class="reprice-box">';
+  h += '<div class="lbl">Harga custom (rewrite) — opsional</div>';
+  h += '<div style="font-size:.78rem;color:#166534;margin:4px 0 10px;">Kosongkan untuk memakai harga API. Berlaku hanya untuk pembelian custom ini.</div>';
+  h += '<input type="number" id="reprice" class="form-control" min="0" step="1" value="' + apiPrice + '" style="max-width:220px;">';
+  h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:14px;font-size:.85rem;">';
+  h += '<span style="color:#888;">Masa Aktif</span><span style="font-weight:600;text-align:right;">' + esc(d.validity || '-') + '</span>';
+  h += '<span style="color:#888;">Poin</span><span style="font-weight:600;text-align:right;">' + d.point + '</span>';
+  h += '<span style="color:#888;">Plan Type</span><span style="font-weight:600;text-align:right;">' + esc(d.plan_type || '-') + '</span>';
+  h += '</div></div>';
+  h += '<div class="section-divider"></div>';
+  var body = '';
+  if (d.benefits && d.benefits.length) {
+    body += '<div style="margin-bottom:12px;"><div class="collapse-header" onclick="this.nextElementSibling.classList.toggle(\'collapsed\');this.querySelector(\'.chev\').classList.toggle(\'up\');"><h3>Kuota &amp; Benefit</h3><span class="chev"></span></div><div class="collapse-body collapsed">' + benefitCards(d.benefits) + '</div></div>';
+  }
+  if (d.tnc) {
+    body += '<div><div class="collapse-header" onclick="this.nextElementSibling.classList.toggle(\'collapsed\');this.querySelector(\'.chev\').classList.toggle(\'up\');"><h3>Syarat &amp; Ketentuan</h3><span class="chev"></span></div><div class="collapse-body collapsed"><div class="tnc-box">' + sanitizeTnc(d.tnc) + '</div></div></div>';
+  }
+  if (body) h += '<div style="padding:16px 24px;">' + body + '</div>';
+  h += '<div class="section-divider"></div>';
+  h += '<div style="padding:16px 24px;">';
+  h += '<h3 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;color:#888;margin:0 0 10px;">Pilih Pembayaran</h3>';
+  h += '<div class="pay-grid">';
+  h += '<a class="pay-btn" href="javascript:void(0)" onclick="location.href=payHref(\'balance\')">Pulsa<span class="sub">Bayar dengan pulsa XL</span></a>';
+  h += '<a class="pay-btn" href="javascript:void(0)" onclick="location.href=payHref(\'qris\')">QRIS<span class="sub">Bayar dengan QRIS</span></a>';
+  h += '</div></div>';
+  h += '</div>';
+  document.getElementById('detail-root').innerHTML = h;
+}
+function renderError(msg) {
+  document.getElementById('detail-root').innerHTML = '<div class="card"><div class="empty-state">' + esc(msg) +
+    '<br><button type="button" class="btn btn-sm btn-primary" style="margin-top:14px;" onclick="loadDetail()">Coba Lagi</button>' +
+    '<br><a href="/user/xl/custom" style="font-size:.85rem;color:#888;">&larr; Kembali ke Beli Paket Custom</a></div></div>';
+}
+function loadDetail() {
+  fetch(DETAIL_URL, { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok && res.detail) renderDetail(res.detail);
+      else renderError(res.error || 'Gagal memuat detail paket.');
+    })
+    .catch(function() { renderError('Gagal terhubung. Coba lagi.'); });
+}
+function refreshPageData() {
+  document.getElementById('detail-root').innerHTML = '<div class="card detail-loading"><div class="skel-spinner"></div><div class="detail-loading-text">Memuat detail paket...</div></div>';
+  loadDetail();
+}
+document.addEventListener('DOMContentLoaded', loadDetail);
+</script>
+{% endblock %}
+{% block content %}
+
+{% if active_xl %}
+{% set banner_title = "Detail Paket Custom" %}
+{% include "user/_banner.html" %}
+{% else %}
+<div class="page-title">Detail Paket Custom</div>
+{% endif %}
+
+<div id="detail-root">
+  <div class="card detail-loading">
+    <div class="skel-spinner"></div>
+    <div class="detail-loading-text">Memuat detail paket...</div>
+  </div>
+</div>
+
+<a href="/user/xl/custom" class="btn btn-outline btn-sm">&larr; Kembali</a>
+
+{% endblock %}

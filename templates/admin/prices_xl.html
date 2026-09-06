@@ -23,7 +23,12 @@
   border-top: 6px solid #6b7280;
   pointer-events: none;
 }
+.family-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.xl-sess-grid select { width: 100%; }
 @media (max-width: 700px) {
+  .xl-sess-grid { grid-template-columns: 1fr !important; }
+  .xl-sess-grid .btn { width: 100%; }
+  .family-grid { grid-template-columns: 1fr; }
   .price-form { width: 100%; flex-wrap: wrap; }
   .price-input { width: 100%; }
   .price-form .btn { flex: 1 1 100%; width: 100%; }
@@ -78,13 +83,36 @@
 </div>
 
 <div class="card" style="margin-bottom:16px;">
-    <div class="price-hint">
-        <strong>Display price</strong> = harga yang dilihat user. <strong>Rewrite price</strong> = nominal yang
-        benar-benar ditagih (pulsa &amp; QRIS). Kosongkan keduanya = ikut harga asli API. <em>Browse Package</em>
-        menampilkan isi katalog family itu (option #, nama, harga) langsung dari API XL — sekaligus memperbarui
-        daftar di halaman ini. Butuh
-        {% if admin_xl_phone %}sesi admin XL aktif: <strong>{{ admin_xl_phone }}</strong>{% else %}<a href="/prices-xl/login-xl">Admin Login XL</a> (belum ada sesi){% endif %}.
+    <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4361ee" stroke-width="2" style="margin-top:1px;flex-shrink:0;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+        <div>
+            <div style="font-weight:600;font-size:14px;">Sesi XL untuk memuat katalog</div>
+            <div class="price-hint">Pilih pengguna lalu nomor (label) yang dipakai proses katalog &amp; harga.</div>
+        </div>
     </div>
+    <form method="POST" action="/prices-xl/login-xl/select">
+        <div class="xl-sess-grid" style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
+            <label style="display:flex;flex-direction:column;gap:6px;">
+                <span class="price-hint" style="font-weight:600;">Pengguna</span>
+                <div class="select-wrap">
+                    <select name="" id="user-select" class="form-control"><option value="">-- pilih pengguna --</option>{% for g in admin_acct_groups %}<option value="{{ g.username }}" data-user="{{ g.username }}">{{ g.username }}</option>{% endfor %}</select>
+                </div>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;">
+                <span class="price-hint" style="font-weight:600;">Nomor (label)</span>
+                <div class="select-wrap">
+                    <select name="account_id" id="acct-select" class="form-control"><option value="">-- pilih nomor --</option>{% for g in admin_acct_groups %}{% for acc in g.accounts %}<option value="{{ acc.id }}" {{ 'selected' if admin_active_account_id == acc.id }} data-user="{{ g.username }}">{{ acc.label }}{% if acc.phone_number %} ({{ acc.phone_number }}){% endif %}</option>{% endfor %}{% endfor %}</select>
+                </div>
+            </label>
+            <button type="submit" class="btn btn-sm btn-primary" style="padding:10px 22px;">Simpan</button>
+        </div>
+    </form>
+    {% if admin_xl_phone %}
+    <div style="margin-top:12px;display:inline-flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:8px 12px;font-size:13px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;"></span>
+        Sesi aktif: <strong>{{ admin_xl_label or admin_xl_phone }}</strong>{% if admin_xl_label %} ({{ admin_xl_phone }}){% endif %}
+    </div>
+    {% endif %}
 </div>
 
 {% for sec in rows %}
@@ -96,22 +124,28 @@
         </button>
     </h2>
     <div class="adv-wrap" id="adv-{{ sec.key }}" hidden style="margin-bottom:8px;">
-        <form method="POST" action="/prices-xl/family" class="price-form" style="flex-direction:column;align-items:stretch;gap:8px;max-width:300px;">
+        <form method="POST" action="/prices-xl/family" class="price-form" style="flex-direction:column;align-items:stretch;gap:8px;max-width:600px;">
             <input type="hidden" name="family_key" value="{{ sec.key }}">
             <input type="hidden" name="url_prefix" value="{{ family_prefixes[sec.key] if family_prefixes else '' }}">
             <input type="hidden" name="option_codes" value="{{ family_options[sec.key] if family_options else '' }}">
-            <label style="display:flex;flex-direction:column;gap:4px;">
-                <span class="price-hint">Label tampilan</span>
-                <input type="text" name="label" value="{{ sec.label }}" class="form-control price-input" style="width:100%;" title="Label tampilan">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:4px;">
-                <span class="price-hint">Family code (tidak bisa diedit)</span>
-                <input type="text" value="{{ family_codes[sec.key] if family_codes else '' }}" class="form-control price-input" style="width:100%;" title="Family code (UUID katalog API XL)" placeholder="Family code" disabled>
-                <input type="hidden" name="family_code" value="{{ family_codes[sec.key] if family_codes else '' }}">
-            </label>
+            <div class="family-grid">
+                <label style="display:flex;flex-direction:column;gap:4px;">
+                    <span class="price-hint">Label tampilan</span>
+                    <input type="text" name="label" value="{{ sec.label }}" class="form-control price-input" style="width:100%;" title="Label tampilan">
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px;">
+                    <span class="price-hint">Family code (tidak bisa diedit)</span>
+                    <input type="text" value="{{ family_codes[sec.key] if family_codes else '' }}" class="form-control price-input" style="width:100%;" title="Family code (UUID katalog API XL)" placeholder="Family code" disabled>
+                    <input type="hidden" name="family_code" value="{{ family_codes[sec.key] if family_codes else '' }}">
+                </label>
+            </div>
             <div style="display:flex;gap:8px;">
                 <button type="submit" class="btn btn-sm btn-outline">Simpan</button>
             </div>
+        </form>
+        <form method="POST" action="/prices-xl/family/delete" onsubmit="return confirm('Hapus group paket ini beserta semua pengaturannya?');" style="margin-top:10px;border-top:1px solid #eee;padding-top:10px;">
+            <input type="hidden" name="family_key" value="{{ sec.key }}">
+            <button type="submit" class="btn btn-sm btn-outline" style="color:#dc2626;border-color:#fecaca;">Hapus Group Paket</button>
         </form>
     </div>
     {% if sec.pkgs and sec.pkgs|length > 0 %}
@@ -261,6 +295,22 @@
       }
     });
   });
+// Link pengguna -> nomor (label): tampilkan hanya punya pengguna terpilih
+  var userSel = document.getElementById("user-select");
+  var acctSel = document.getElementById("acct-select");
+  function filterAccts() {
+    var u = userSel.value;
+    Array.prototype.forEach.call(acctSel.options, function (o) {
+      o.hidden = o.value && o.dataset.user !== u;
+    });
+  }
+  if (userSel && acctSel) {
+    var activeUser = acctSel.options[acctSel.selectedIndex]
+      ? acctSel.options[acctSel.selectedIndex].dataset.user : "";
+    if (activeUser) userSel.value = activeUser;
+    userSel.addEventListener("change", filterAccts);
+    filterAccts();
+  }
 })();
 </script>
 

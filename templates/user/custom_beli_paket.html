@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}Beli Paket Custom - RohTembak (XL){% endblock %}
+{% block head %}
+<style>
+.pkg-section {
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 10px;
+  background: #fff;
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.pkg-section .pkg-title {
+  font-size: 15px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px;
+  background: rgba(0,0,0,0.03);
+  color: #111827;
+  padding: 12px 14px;
+  margin: 0;
+}
+.pkg-section .body-wrap { padding: 14px; }
+.package-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+@media (min-width: 640px) {
+  .package-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.pkg-card {
+  background: rgba(0,0,0,0.05);
+  border-radius: 10px;
+  padding: 14px;
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: background .15s, box-shadow .15s;
+}
+.pkg-card:hover {
+  background: linear-gradient(135deg, rgba(37,99,235,.12), rgba(124,58,237,.12));
+  box-shadow: 0 4px 14px rgba(76,29,149,.12);
+  text-decoration: none;
+}
+.pkg-card .pkg-number { font-size: .7rem; color: #6b7280; margin-bottom: 8px; }
+.pkg-card .pkg-name { font-size: 1rem; font-weight: 600; color: #111827; margin: 0 0 6px; }
+.pkg-card .pkg-price { font-size: 1.15rem; font-weight: 700; color: #16a34a; margin-bottom: 10px; }
+.pkg-size { font-size: .85rem; margin-bottom: 6px; color: #6b7280; }
+.pkg-card.muted .pkg-number, .pkg-card.muted .pkg-name { color: #9ca3af; }
+.pkg-card.muted .pkg-price { color: #9ca3af; }
+.pkg-empty { padding: 14px; font-size: .85rem; color: #6b7280; }
+.pkg-error {
+  font-size: .82rem; color: #b91c1c;
+  background: #fef2f2; border: 1px solid #fecaca;
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
+}
+.pkg-loading, .pkg-hint { font-size: .85rem; color: #6b7280; }
+.custom-form { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 4px; }
+.custom-form label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px; max-width: 480px; }
+.custom-form .lbl { font-weight: 600; font-size: 12px; color: #111827; }
+.skel-spinner {
+  width: 28px; height: 28px;
+  border: 3px solid rgba(0,0,0,0.1);
+  border-top-color: #4361ee;
+  border-radius: 50%;
+  display: inline-block;
+  vertical-align: middle;
+  animation: cb-spin .8s linear infinite;
+}
+@keyframes cb-spin { to { transform: rotate(360deg); } }
+</style>
+<script>
+window.BANNER_SSE = false;
+var PINNED_FC = "";
+var PIN_LABEL = "{{ custom_buy.label }}";
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function fmtRp(n) {
+  n = Number(n);
+  if (isNaN(n)) return '';
+  return n.toLocaleString('id-ID') + ' IDR';
+}
+function cardHref(it, mode) {
+  if (mode && mode.pin) return '/user/xl/custom/' + it.number + '/detail?pin=1';
+  return '/user/xl/custom/' + it.number + '/detail?fc=' + encodeURIComponent(mode ? mode.fc : '');
+}
+function cardHtml(it, mode) {
+  var muted = it.price === 0 ? ' muted' : '';
+  var size = it.size ? '<div class="pkg-size">' + escHtml(it.size) + '</div>' : '';
+  return '<a class="pkg-card' + muted + '" href="' + cardHref(it, mode) + '">' +
+    '<div class="pkg-number">#' + it.number + ' &middot; ' + escHtml(it.variant_name || '') + '</div>' +
+    '<div class="pkg-name">' + escHtml(it.label) + '</div>' + size +
+    '<div class="pkg-price">' + fmtRp(it.price) + '</div>' +
+    '</a>';
+}
+function renderGrid(target, items, mode) {
+  if (!items || !items.length) {
+    target.innerHTML = '<div class="pkg-empty">Tidak ada paket tersedia.</div>';
+    return;
+  }
+  var html = '<div class="package-grid">';
+  items.forEach(function(it) { html += cardHtml(it, mode); });
+  target.innerHTML = html + '</div>';
+}
+function setBusy(target) {
+  target.innerHTML = '<div class="pkg-loading"><span class="skel-spinner"></span> &nbsp;Memuat paket...</div>';
+}
+function browseFc(fc, mode) {
+  var box = document.getElementById('custom-result');
+  var err = document.getElementById('custom-error');
+  if (err) err.hidden = true;
+  setBusy(box);
+  fetch('/user/xl/custom/browse?fc=' + encodeURIComponent(fc), { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok) {
+        renderGrid(box, res.items, mode || { fc: fc });
+      } else {
+        if (err) { err.textContent = res.error || 'Gagal memuat katalog.'; err.hidden = false; }
+        box.innerHTML = '';
+      }
+    })
+    .catch(function() {
+      if (err) { err.textContent = 'Gagal terhubung. Coba lagi.'; err.hidden = false; }
+      box.innerHTML = '';
+    });
+}
+function browsePin() {
+  var box = document.getElementById('custom-result');
+  var err = document.getElementById('custom-error');
+  if (err) err.hidden = true;
+  setBusy(box);
+  fetch('/user/xl/custom/browse?pin=1', { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok) {
+        var title = document.getElementById('custom-title');
+        if (title) title.textContent = 'Beli Paket Custom — ' + PIN_LABEL;
+        renderGrid(box, res.items, { pin: true });
+      } else {
+        if (err) { err.textContent = res.error || 'Gagal memuat katalog pin.'; err.hidden = false; }
+        box.innerHTML = '';
+      }
+    })
+    .catch(function() {
+      if (err) { err.textContent = 'Gagal terhubung. Coba lagi.'; err.hidden = false; }
+      box.innerHTML = '';
+    });
+}
+function browseFromInput() {
+  var fc = document.getElementById('custom-fc').value.trim();
+  if (!fc) {
+    document.getElementById('custom-fc').focus();
+    return;
+  }
+  var title = document.getElementById('custom-title');
+  if (title) title.textContent = 'Beli Paket Custom — ' + fc;
+  browseFc(fc, { fc: fc });
+}
+document.addEventListener('DOMContentLoaded', function() {
+  if ('{{ '1' if custom_buy.family_code else '0' }}' === '1') browsePin();
+});
+</script>
+{% endblock %}
+{% block content %}
+
+{% if active_xl %}
+{% set banner_title = "Beli Paket Custom" %}
+{% include "user/_banner.html" %}
+{% else %}
+<div class="page-title">Beli Paket Custom</div>
+{% endif %}
+
+<div class="pkg-section">
+  <div class="pkg-title" id="custom-title">{{ custom_buy.label }}</div>
+  <div class="body-wrap">
+    <div class="custom-form">
+      <label>
+        <span class="lbl">Family code</span>
+        <div style="display:flex;gap:8px;width:100%;">
+          <input type="text" id="custom-fc" class="form-control" placeholder="Ketik family code lain (opsional)" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();browseFromInput();}">
+          <button type="button" class="btn btn-sm btn-primary" onclick="browseFromInput()" style="flex-shrink:0;">Browse</button>
+        </div>
+      </label>
+      {% if custom_buy.family_code %}
+      <button type="button" class="btn btn-sm btn-success" onclick="browsePin()" style="flex-shrink:0;">{{ custom_buy.label }} — Browse</button>
+      {% endif %}
+    </div>
+    {% if custom_buy.family_code %}
+    <div class="pkg-hint" id="pin-active-note" style="margin-bottom:10px;">Pin aktif dari admin: <strong>{{ custom_buy.label }}</strong> — kode pin tidak ditampilkan, tekan tombol di atas untuk brows&amp;nbsp;e.</div>
+    {% else %}
+    <div class="pkg-hint" style="margin-bottom:10px;">Belum ada pin dari admin. Ketik family code mana pun untuk browse semua opsi paketnya.</div>
+    {% endif %}
+
+    <div id="custom-error" class="pkg-error" hidden></div>
+    <div id="custom-result"><div class="pkg-empty">Ketik family code lalu tekan Browse untuk memuat paket.</div></div>
+  </div>
+</div>
+
+<a href="/user/xl/beli-paket" class="btn btn-outline btn-sm">&larr; Kembali</a>
+
+{% endblock %}

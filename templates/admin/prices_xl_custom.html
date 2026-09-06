@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Atur Paket XL (Custom) - RohTembak (XL){% endblock %}
+{% block head %}
+<style>
+.price-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.price-form label { display: flex; flex-direction: column; gap: 4px; }
+.price-form .lbl { font-size: 12px; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: .5px; }
+.price-input { width: 200px; }
+@media (max-width: 700px) {
+  .price-input { width: 100%; }
+  .price-form .btn { width: 100%; }
+  table thead { display: none; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  tr {
+    background: #fff; border: 1px solid #eee; border-radius: 10px;
+    margin-bottom: 12px; padding: 0; overflow: hidden;
+  }
+  td {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; border: none; border-bottom: 1px solid #f0f0f0;
+    font-size: 14px;
+  }
+  td:first-child, tr:hover td:first-child {
+    background: #e5e7eb;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  td:last-child { border-bottom: none; }
+  td::before {
+    content: attr(data-label);
+    font-weight: 600; color: #666; font-size: 12px;
+    text-transform: uppercase; letter-spacing: .5px;
+    margin-right: 12px; flex-shrink: 0;
+  }
+  tr[hidden] { display: none !important; }
+  .edit-row td::before { content: none; }
+  .edit-row td { justify-content: flex-start; }
+  .edit-row td .btn { flex: 0 1 auto; }
+}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.custom-edit-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var row = document.querySelector('.edit-row[data-edit="' + btn.dataset.key + '"]');
+      if (row) {
+        row.hidden = !row.hidden;
+        btn.textContent = row.hidden ? "Edit" : "Tutup";
+      }
+    });
+  });
+});
+</script>
+{% endblock %}
+{% block content %}
+
+<div class="header-section">
+    <div>
+        <div class="page-title">Atur Paket XL (Custom)</div>
+        <div class="page-subtitle">Group permanen Beli Paket Custom</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2 style="font-size:16px;margin-bottom:12px;">Group Paket Custom</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Group</th>
+                <th>Label Tampilan</th>
+                <th>Family Code Pin</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td data-label="Group"><strong>Beli Paket Custom</strong></td>
+                <td data-label="Label Tampilan">{{ custom_buy.label }}</td>
+                <td data-label="Family Code Pin" style="font-family:monospace;">{{ custom_buy.family_code or '-' }}</td>
+                <td data-label="" style="text-align:right;">
+                    <button type="button" class="btn btn-sm btn-outline custom-edit-toggle" data-key="custom" title="Ubah label atau pin">Edit</button>
+                </td>
+            </tr>
+            <tr class="edit-row" data-edit="custom" hidden>
+                <td colspan="4" style="background:#fafafa;">
+                    <form method="POST" action="/prices-xl/custom/save" class="price-form">
+                        <label>
+                            <span class="lbl">Label tampilan</span>
+                            <input type="text" name="label" class="form-control price-input" value="{{ custom_buy.label }}" maxlength="100" required title="Label yang dilihat user di Beli Paket">
+                        </label>
+                        <label>
+                            <span class="lbl">Family code pin (opsional)</span>
+                            <input type="text" name="family_code" class="form-control price-input" value="{{ custom_buy.family_code }}" maxlength="64" placeholder="UUID family code (opsional)">
+                        </label>
+                        <button type="submit" class="btn btn-sm btn-primary">Simpan</button>
+                    </form>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<a href="/prices-xl" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Atur Paket XL</a>
+
+{% endblock %}

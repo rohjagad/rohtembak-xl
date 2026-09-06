@@ -215,7 +215,7 @@ function closePendingModal() {
 
     <div style="margin-top:18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <button class="btn btn-success" id="pay-btn" onclick="payNow()" {% if insufficient %}disabled{% endif %}>Bayar</button>
-      <a class="btn btn-outline btn-sm" href="/user/xl/beli-paket/{{ detail.url_id }}/detail">&larr; Kembali</a>
+      <a class="btn btn-outline btn-sm" href="{{ back_url or ('/user/xl/beli-paket/' + detail.url_id + '/detail') }}">&larr; Kembali</a>
     </div>
     {% if method == "qris" %}
     <div style="margin-top:10px;font-size:.78rem;color:#92400e;">Biaya saldo panel dipotong langsung saat QRIS dibuat dan <strong>tidak dapat dikembalikan</strong>, termasuk jika QRIS tidak jadi dibayar.</div>

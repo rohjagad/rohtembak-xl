@@ -399,6 +399,18 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
     </div>
   {% endfor %}
+
+  <div class="pkg-section">
+    <div class="card-header" onclick="toggleBox('{{ custom_buy.family_key }}')"><span>{{ custom_buy.label }}</span><span class="chev" id="{{ custom_buy.family_key }}-chev"></span></div>
+    <div class="body-wrap" id="{{ custom_buy.family_key }}-body">
+      <div class="pkg-refresh">Browse &amp; beli paket dengan family code bebas — atau pakai pin yang disiapkan admin.</div>
+      <a href="{{ custom_url }}" class="pkg-card" style="text-align:center;">
+        <div class="pkg-number">Beli Paket Custom</div>
+        <div class="pkg-name" style="margin-bottom:4px;">Buka halaman Beli Paket Custom</div>
+        <div style="font-size:.8rem;color:#4361ee;font-weight:600;">&rarr; Ketik family code, browse semua opsi, atur harga sendiri</div>
+      </a>
+    </div>
+  </div>
 </div>
 
 {% else %}

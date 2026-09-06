@@ -11,7 +11,7 @@
 
 {% if error %}
 <div class="card" style="border-color:#fecaca;">
-    <div class="price-hint" style="color:#b91c1c;">{{ error }} — <a href="/prices-xl/login-xl">Admin Login XL</a></div>
+    <div class="price-hint" style="color:#b91c1c;">{{ error }} — <a href="/prices-xl/login-xl">Pilih pengguna &amp; sesi XL</a></div>
 </div>
 {% endif %}
 {% if note %}
@@ -69,7 +69,7 @@
             <input type="hidden" name="family_key" value="{{ fam_key }}">
             <button type="button" class="btn btn-sm btn-primary" id="refetchBtn">Browse dari API (refresh)</button>
         </form>
-        <span class="price-hint" id="refetchStatus">{% if admin_xl_phone %}Sesi admin XL: {{ admin_xl_phone }}{% endif %}</span>
+        <span class="price-hint" id="refetchStatus">{% if admin_xl_phone %}Sesi XL: {{ admin_xl_label or admin_xl_phone }}{% endif %}</span>
     </div>
 </div>
 

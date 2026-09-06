@@ -31,6 +31,10 @@
     text-transform: uppercase; letter-spacing: .5px;
     margin-right: 12px; flex-shrink: 0;
   }
+  tr[hidden] { display: none !important; }
+  .edit-row td::before { content: none; }
+  .edit-row td { justify-content: flex-start; }
+  .edit-row td .btn { flex: 0 1 auto; }
 }
 
 .modal-overlay {
@@ -80,6 +84,37 @@ function submitDecrease() {
 function submitSet() {
   if (pickUser('set-user', 'set-user-id')) document.getElementById('setForm').submit();
 }
+function openTopupFor(id, username) {
+  document.getElementById('topup-user').value = username;
+  document.getElementById('topup-user-id').value = id;
+  openTopup();
+}
+function openSetFor(id, username) {
+  document.getElementById('set-user').value = username;
+  document.getElementById('set-user-id').value = id;
+  openSet();
+}
+function openDecreaseFor(id, username) {
+  document.getElementById('decrease-user').value = username;
+  document.getElementById('decrease-user-id').value = id;
+  openDecrease();
+}
+function openDeleteFor(id, username) {
+  document.getElementById('del-user').value = username;
+  document.getElementById('del-user-id').value = id;
+  openDelete();
+}
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.user-edit-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var row = document.querySelector('.edit-row[data-edit="' + btn.dataset.key + '"]');
+      if (row) {
+        row.hidden = !row.hidden;
+        btn.textContent = row.hidden ? "Edit" : "Tutup";
+      }
+    });
+  });
+});
 function filterUsers() {
   var q = document.getElementById('user-search').value.toLowerCase();
   var rows = document.querySelectorAll('#users-table tbody tr');
@@ -107,12 +142,6 @@ document.addEventListener('click', function(e) {
         <div class="page-title">Kelola User</div>
         <div class="page-subtitle">Kelola saldo panel pengguna</div>
     </div>
-    <div style="display:flex;gap:8px;">
-        <button class="btn btn-sm btn-outline" onclick="openTopup()">Topup</button>
-        <button class="btn btn-sm btn-outline" onclick="openSet()">Set Saldo</button>
-        <button class="btn btn-sm btn-outline" onclick="openDecrease()">Kurangi Saldo</button>
-        <button class="btn btn-sm btn-outline" onclick="openDelete()">Delete User</button>
-    </div>
 </div>
 
 <div class="card" style="padding:14px;">
@@ -127,7 +156,7 @@ document.addEventListener('click', function(e) {
                 <th>Username</th>
                 <th>Email</th>
                 <th>Saldo (IDR)</th>
-                <th>XL Terdaftar</th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -136,7 +165,19 @@ document.addEventListener('click', function(e) {
                 <td data-label="Username"><strong>{{ u.username }}</strong></td>
                 <td data-label="Email">{{ u.email }}</td>
                 <td data-label="Saldo" style="font-weight:600;">{{ u.balance|rupiah }} IDR</td>
-                <td data-label="XL">{{ u.xl_count }} nomor</td>
+                <td data-label="" style="text-align:right;">
+                    <button type="button" class="btn btn-sm btn-outline user-edit-toggle" data-key="{{ u.id }}" title="Topup, set/kurangi saldo, atau hapus">Edit</button>
+                </td>
+            </tr>
+            <tr class="edit-row" data-edit="{{ u.id }}" hidden>
+                <td colspan="4" style="background:#fafafa;">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button type="button" class="btn btn-sm btn-outline" onclick="openTopupFor({{ u.id }}, '{{ u.username }}')">Topup</button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick="openSetFor({{ u.id }}, '{{ u.username }}')">Set Saldo</button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick="openDecreaseFor({{ u.id }}, '{{ u.username }}')">Kurangi Saldo</button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick="openDeleteFor({{ u.id }}, '{{ u.username }}')" style="color:#dc2626;border-color:#fecaca;">Delete User</button>
+                    </div>
+                </td>
             </tr>
             {% endfor %}
         </tbody>

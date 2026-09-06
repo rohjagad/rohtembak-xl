@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, Depends, Form, File, UploadFile, HTTPException, status
-from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse, Response
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
@@ -379,10 +379,9 @@ async def lifespan(app: FastAPI):
             if _name not in _pkg_cols:
                 _db0.execute(_text(f"ALTER TABLE package_prices ADD COLUMN {_name} {_ddl}"))
         _db0.commit()
-        _seed_xl_families(_db0)
         _db0.close()
     except Exception as e:
-        print(f"[lifespan] migrasi/seed xl_families gagal: {e}")
+        print(f"[lifespan] migrasi/index xl_families gagal: {e}")
     db = next(get_db())
     seed_users(db)
     existing_users = db.query(User).filter(User.role == "user").all()
@@ -758,6 +757,62 @@ def _list_decoys(payment_type: str) -> list[dict]:
     return out
 
 
+def _decoy_file_entries() -> list[tuple[str, str]]:
+    """(zip_path, file_path) untuk semua file decoy di decoy_data/ — backup
+    ZIP membawa file apa adanya, bukan blob JSON."""
+    from app.service.decoy import decoy_type_dir
+    entries = []
+    for ptype in ("qris", "balance"):
+        dirpath = decoy_type_dir(ptype)
+        if os.path.isdir(dirpath):
+            for fn in sorted(os.listdir(dirpath)):
+                if fn.endswith(".json"):
+                    entries.append((f"decoys/{ptype}/{fn}", os.path.join(dirpath, fn)))
+    return entries
+
+
+def _wipe_decoys():
+    """Hapus semua file decoy (qris & balance) + legacy decoy-default-*."""
+    from app.service.decoy import decoy_type_dir, DECOY_DATA_DIR
+    for ptype in ("qris", "balance"):
+        dirpath = decoy_type_dir(ptype)
+        if os.path.isdir(dirpath):
+            for fn in os.listdir(dirpath):
+                if fn.endswith(".json"):
+                    try:
+                        os.remove(os.path.join(dirpath, fn))
+                    except OSError:
+                        pass
+        legacy = os.path.join(DECOY_DATA_DIR, f"decoy-default-{ptype}.json")
+        if os.path.exists(legacy):
+            try:
+                os.remove(legacy)
+            except OSError:
+                pass
+
+
+def _restore_decoys(decoys: dict) -> int:
+    """Tulis config decoy dari backup ke decoy_data/. Return jumlah terpasang."""
+    from app.service.decoy import save_decoy_config
+    restored = 0
+    for ptype in ("qris", "balance"):
+        names = decoys.get(ptype)
+        if not isinstance(names, dict):
+            continue
+        for name, cfg in names.items():
+            name = str(name).strip()
+            if not name or not re.fullmatch(r"[A-Za-z0-9_-]{1,60}", name):
+                continue
+            if not isinstance(cfg, dict):
+                continue
+            try:
+                save_decoy_config(ptype, name, cfg)
+                restored += 1
+            except Exception as e:
+                print(f"[restore-decoy] gagal tulis {ptype}/{name}: {e}")
+    return restored
+
+
 @app.get("/admin/decoys", response_class=HTMLResponse)
 def admin_decoys_page(request: Request, user: User = Depends(get_current_user)):
     if user.role != "admin":
@@ -915,17 +970,47 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
             })
         rows.append(row)
     admin_sess = _admin_xl_read()
+    admin_acct_groups = []
+    db2 = next(get_db())
+    try:
+        for u in db2.query(User).filter(User.role == "user").order_by(User.username).all():
+            accts = [a for a in u.xl_accounts if a.phone_number]
+            if accts:
+                admin_acct_groups.append({
+                    "username": u.username,
+                    "accounts": [{
+                        "id": a.id,
+                        "label": a.label or f"Nomor {a.phone_number}",
+                        "phone_number": a.phone_number,
+                    } for a in accts],
+                })
+    finally:
+        db2.close()
     return render("admin/prices_xl.html", context={
         "request": request,
         "user": user,
         "rows": rows,
+        "admin_acct_groups": admin_acct_groups,
+        "admin_active_account_id": (admin_sess or {}).get("account_id"),
         "family_codes": {k: v["family_code"] for k, v in reg.items()},
         "family_prefixes": {k: v["url_prefix"] for k, v in reg.items()},
         "family_options": {k: ",".join(str(x) for x in v["option_codes"]) for k, v in reg.items()},
         "family_actives": {k: v["is_active"] for k, v in reg.items()},
         "decoy_names_qris": [{"name": d["name"], "label": d["label"]} for d in _list_decoys("qris")],
         "decoy_names_pulsa": [{"name": d["name"], "label": d["label"]} for d in _list_decoys("balance")],
+        "admin_xl_label": admin_sess.get("label") if admin_sess else None,
         "admin_xl_phone": admin_sess.get("phone_number") if admin_sess else None,
+    })
+
+
+@app.get("/prices-xl-custom", response_class=HTMLResponse)
+def admin_prices_xl_custom_page(request: Request, user: User = Depends(get_current_user)):
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    return render("admin/prices_xl_custom.html", context={
+        "request": request,
+        "user": user,
+        "custom_buy": _custom_buy_read(),
     })
 
 
@@ -1122,6 +1207,53 @@ def admin_prices_xl_family_toggle(
     return RedirectResponse(url="/prices-xl", status_code=303)
 
 
+@app.post("/prices-xl/custom/save")
+def admin_prices_xl_custom_save(
+    label: str = Form(""),
+    family_code: str = Form(""),
+    user: User = Depends(get_current_user),
+):
+    """Simpan konfigurasi group permanen Beli Paket Custom (label + family
+    code pin opsional). Group ini tidak bisa dihapus — hanya labelnya yang
+    tampil ke user; family code pin tidak pernah ditampilkan."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    _custom_buy_write(label, _valid_custom_family_code(family_code))
+    return RedirectResponse(url="/prices-xl-custom", status_code=303)
+
+
+@app.post("/prices-xl/family/delete")
+def admin_prices_xl_family_delete(
+    family_key: str = Form(...),
+    user: User = Depends(get_current_user),
+):
+    """Hapus satu group paket beserta semua turunannya (override harga/decoy,
+    fee paket, snapshot katalog)."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    family_key = family_key.strip().lower()[:20]
+    if not family_key or family_key not in _family_registry():
+        return RedirectResponse(url="/prices-xl", status_code=303)
+    db = next(get_db())
+    try:
+        db.query(XlFamily).filter(XlFamily.family_key == family_key).delete()
+        db.query(PackagePrice).filter(PackagePrice.family_key == family_key).delete()
+        db.query(FamilyFee).filter(FamilyFee.family_key.in_(
+            (_fee_key(family_key, "balance"), _fee_key(family_key, "qris"))
+        )).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+    try:
+        snap = _read_snapshot_file()
+        if family_key in snap:
+            del snap[family_key]
+            _write_snapshot_file(snap)
+    except Exception as e:
+        print(f"[family-delete] snapshot cleanup gagal: {e}")
+    return RedirectResponse(url="/prices-xl", status_code=303)
+
+
 @app.post("/prices-xl/catalog/fetch")
 def admin_prices_xl_catalog_fetch(user: User = Depends(get_current_user)):
     """Muat katalog semua family dari API XL pakai sesi admin (admin login XL).
@@ -1132,7 +1264,7 @@ def admin_prices_xl_catalog_fetch(user: User = Depends(get_current_user)):
     if user.role != "admin":
         return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
     if not _admin_xl_read():
-        return JSONResponse({"ok": False, "message": "Belum ada sesi admin XL. Login dulu."})
+        return JSONResponse({"ok": False, "message": "Belum ada sesi XL dipilih. Pilih pengguna dulu."})
     with _catalog_fetch_lock:
         ok, msg = _admin_xl_fetch_catalog()
     return JSONResponse({"ok": ok, "message": msg})
@@ -1156,7 +1288,7 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
             tokens = _admin_xl_tokens()
         if not tokens:
             _admin_xl_clear()
-            error = "Sesi admin XL kedaluwarsa. Login ulang nomor admin."
+            error = "Sesi XL kedaluwarsa. Pilih ulang pengguna & nomornya."
         else:
             fam_code = cfg["family_code"]
             is_ent, mig = _family_api_params(fam_code)
@@ -1182,7 +1314,7 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
             elif not error:
                 error = "Katalog kosong / tidak ditemukan. Cek family code."
     else:
-        error = "Belum ada sesi admin XL."
+        error = "Belum ada sesi XL dipilih."
     selected = set(cfg["option_codes"])
     snap = {it.get("number"): it for it in _load_catalog_snapshot(family_key) if isinstance(it, dict)}
     return render("admin/browse_family.html", context={
@@ -1195,6 +1327,7 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
         "selected": selected,
         "note": note,
         "error": error,
+        "admin_xl_label": (_admin_xl_read() or {}).get("label"),
         "admin_xl_phone": (_admin_xl_read() or {}).get("phone_number"),
     })
 
@@ -1301,86 +1434,61 @@ def _family_codes_remove(family_key, number):
         db.close()
 
 
-# ─── Admin Login XL (sesi khusus fetch katalog) ─────────────────────────────
+# ─── Admin pilih sesi XL user (untuk fetch katalog) ─────────────────────────
 
 @app.get("/prices-xl/login-xl", response_class=HTMLResponse)
 def admin_prices_xl_login_page(request: Request, user: User = Depends(get_current_user)):
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
     sess = _admin_xl_read()
-    return render("admin/login_xl.html", context={
-        "request": request,
-        "user": user,
-        "admin_xl_phone": sess.get("phone_number") if sess else None,
-    })
-
-
-@app.post("/prices-xl/login-xl/request")
-def admin_prices_xl_login_request(
-    request: Request,
-    phone_number: str = Form(...),
-    user: User = Depends(get_current_user),
-):
-    if user.role != "admin":
-        return RedirectResponse(url="/user/dashboard", status_code=303)
-    if (not phone_number.startswith("628") or len(phone_number) < 10 or len(phone_number) > 14
-            or not phone_number.isdigit()):
-        return render("admin/login_xl.html", context={
-            "request": request, "user": user, "admin_xl_phone": None,
-            "error": "Nomor tidak valid. Harus diawali 628 dan 10-14 digit",
-        }, status_code=400)
+    accounts = []
+    db = next(get_db())
     try:
-        _api_delay()
-        subscriber_id = xl_get_otp(phone_number, "admin")
-    except Exception as e:
-        return render("admin/login_xl.html", context={
-            "request": request, "user": user, "admin_xl_phone": None,
-            "error": f"Gagal mengirim OTP: {e}",
-        }, status_code=400)
-    if not subscriber_id:
-        return render("admin/login_xl.html", context={
-            "request": request, "user": user, "admin_xl_phone": None,
-            "error": "Gagal mengirim OTP. Periksa nomor atau tunggu beberapa saat.",
-        }, status_code=400)
+        users = db.query(User).filter(User.role == "user").order_by(User.username).all()
+        for u in users:
+            accts = [a for a in u.xl_accounts if a.phone_number]
+            if not accts:
+                continue
+            accounts.append({
+                "username": u.username,
+                "accounts": [{
+                    "id": a.id,
+                    "label": a.label or f"Nomor {a.phone_number}",
+                    "phone_number": a.phone_number,
+                    "is_active": a.is_active,
+                    "has_token": bool(a.refresh_token),
+                } for a in accts],
+            })
+    finally:
+        db.close()
     return render("admin/login_xl.html", context={
         "request": request,
         "user": user,
-        "admin_xl_phone": None,
-        "phone_number": phone_number,
-        "subscriber_id": subscriber_id,
+        "accounts": accounts,
+        "admin_xl_label": (sess or {}).get("label"),
+        "admin_xl_phone": (sess or {}).get("phone_number"),
     })
 
 
-@app.post("/prices-xl/login-xl/submit")
-def admin_prices_xl_login_submit(
-    request: Request,
-    phone_number: str = Form(...),
-    otp_code: str = Form(...),
-    subscriber_id: str = Form(""),
+@app.post("/prices-xl/login-xl/select")
+def admin_prices_xl_login_select(
+    account_id: int = Form(...),
     user: User = Depends(get_current_user),
 ):
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
-    if not otp_code or len(otp_code) != 6 or not otp_code.isdigit():
-        return render("admin/login_xl.html", context={
-            "request": request, "user": user, "admin_xl_phone": None,
-            "phone_number": phone_number, "subscriber_id": subscriber_id,
-            "error": "Kode OTP harus 6 digit angka",
-        }, status_code=400)
-    _api_delay()
-    tokens = xl_submit_otp(API_KEY, "SMS", phone_number, otp_code, "admin")
-    if tokens is None:
-        return render("admin/login_xl.html", context={
-            "request": request, "user": user, "admin_xl_phone": None,
-            "phone_number": phone_number, "subscriber_id": subscriber_id,
-            "error": "Kode OTP salah atau sudah kadaluarsa",
-        }, status_code=400)
-    _admin_xl_write({
-        "phone_number": phone_number,
-        "subscriber_id": subscriber_id,
-        "refresh_token": tokens.get("refresh_token", ""),
-        "refresh_expires_at": int(time.time()) + int(tokens.get("refresh_expires_in") or 0),
-    })
+    db = next(get_db())
+    try:
+        acct = db.query(XLAccount).filter(XLAccount.id == account_id).first()
+        if not acct:
+            return RedirectResponse(url="/prices-xl/login-xl", status_code=303)
+        _admin_xl_write({
+            "account_id": acct.id,
+            "phone_number": acct.phone_number,
+            "label": acct.label,
+        })
+    finally:
+        db.close()
     return RedirectResponse(url="/prices-xl", status_code=303)
 
 
@@ -1795,7 +1903,7 @@ def admin_payment_test(
 
 
 @app.get("/admin/backup")
-def admin_backup(format: str = "zip", admin_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def admin_backup(admin_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if admin_user.role != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")
     admin = db.query(User).filter(User.role == "admin").first()
@@ -1827,34 +1935,8 @@ def admin_backup(format: str = "zip", admin_user: User = Depends(get_current_use
                 "subscription_type": x.subscription_type,
                 "is_active": bool(x.is_active),
             })
-    if format == "txt":
-        lines = []
-        for u in users_data:
-            lines.append(f"username: {u['username']}")
-            lines.append(f"password: {u['password']}")
-            lines.append(f"email: {u['email']}")
-            lines.append(f"saldo: {u['saldo']}")
-            lines.append("")
-        content = "\n".join(lines).strip()
-        resp = PlainTextResponse(content)
-        resp.headers["Content-Disposition"] = 'attachment; filename="backup.txt"'
-        return resp
     fees = _get_all_family_fees()
     prices = _get_all_pkg_prices()
-    if format == "json":
-        payload = {
-            "version": 2,
-            "exported_at": datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB"),
-            "admin": admin_data,
-            "users": [dict(u, xl_accounts=[a for a in xl_data if a["username"] == u["username"]]) for u in users_data],
-            "fees": fees,
-            "prices": prices,
-            "families": _family_registry(),
-            "settings": _collect_backup_settings(),
-        }
-        resp = JSONResponse(payload)
-        resp.headers["Content-Disposition"] = 'attachment; filename="backup.json"'
-        return resp
     zip_bytes = _build_backup_zip_bytes(admin_data, users_data, xl_data, fees, prices, users)
     resp = Response(content=zip_bytes, media_type="application/zip")
     resp.headers["Content-Disposition"] = 'attachment; filename="backup.zip"'
@@ -1885,6 +1967,7 @@ def _collect_backup_settings() -> dict:
             "topup_admin": bool(st.get("notif_topup_admin")),
             "purchase": bool(st.get("notif_purchase")),
         },
+        "custom_buy": _custom_buy_read(),
     }
 
 
@@ -1897,13 +1980,15 @@ def _build_backup_zip_bytes(admin_data: dict, users_data: list, xl_data: list, f
     exported_at = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB")
     ax_fp = _read_ax_fp_file()
     settings_data = _collect_backup_settings()
+    decoy_files = _decoy_file_entries()
+    decoy_count = len(decoy_files)
 
     entries: list[tuple[str, str]] = [
         ("manifest.json", json.dumps({
             "version": 3,
             "app": "RohTembak (XL)",
             "exported_at": exported_at,
-            "counts": {"users": len(users_data), "xl_accounts": len(xl_data), "fees": len(fees), "prices": len(prices), "families": len(_family_registry()), "settings": 1},
+            "counts": {"users": len(users_data), "xl_accounts": len(xl_data), "fees": len(fees), "prices": len(prices), "families": len(_family_registry()), "settings": 1, "decoys": decoy_count},
         }, indent=2, ensure_ascii=False)),
         ("admin.json", json.dumps(admin_data, indent=2, ensure_ascii=False)),
         ("users.json", json.dumps(users_data, indent=2, ensure_ascii=False)),
@@ -1913,6 +1998,16 @@ def _build_backup_zip_bytes(admin_data: dict, users_data: list, xl_data: list, f
         ("families.json", json.dumps(_family_registry(), indent=2, ensure_ascii=False)),
         ("settings.json", json.dumps(settings_data, indent=2, ensure_ascii=False)),
     ]
+    for zip_path, file_path in decoy_files:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                entries.append((zip_path, f.read()))
+        except OSError:
+            continue
+    if not decoy_files:
+        # Marker biar restore tahu backup ini memang tanpa decoy (bukan file lama)
+        # dan decoy live ikut dihapus agar hasil identik dengan isi backup.
+        entries.append(("decoys/.keep", ""))
     if ax_fp:
         entries.append(("device.fp", ax_fp))
     fp_dir = os.path.join(BASE_DIR, "data")
@@ -2451,6 +2546,7 @@ def _norm_backup(data: dict) -> dict:
         "fees": data.get("fees") if isinstance(data.get("fees"), dict) else None,
         "prices": data.get("prices") if isinstance(data.get("prices"), list) else None,
         "families": data.get("families") if isinstance(data.get("families"), dict) else None,
+        "decoys": data.get("decoys") if isinstance(data.get("decoys"), dict) else None,
         "settings": data.get("settings") if isinstance(data.get("settings"), dict) else None,
     }
 
@@ -2526,6 +2622,20 @@ def _load_backup_v3(zf) -> dict | None:
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise ValueError("File settings.json di dalam ZIP tidak valid.")
 
+    decoys_raw = {}
+    for name in zf.namelist():
+        if name.startswith("decoys/") and name.endswith(".json"):
+            parts = name.split("/")
+            if len(parts) != 3:
+                continue
+            ptype, fname = parts[1], parts[2][:-5]
+            try:
+                cfg = json.loads(zf.read(name).decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError, RuntimeError):
+                continue
+            if isinstance(cfg, dict):
+                decoys_raw.setdefault(ptype, {})[fname] = cfg
+
     data = _norm_backup({
         "version": 3,
         "admin": read("admin.json"),
@@ -2534,6 +2644,7 @@ def _load_backup_v3(zf) -> dict | None:
         "fees": read("fees.json"),
         "prices": read("prices.json"),
         "families": read("families.json"),
+        "decoys": decoys_raw,
     })
     data["device_fp"] = device_fp
     data["user_fingerprints"] = user_fingerprints
@@ -2541,32 +2652,10 @@ def _load_backup_v3(zf) -> dict | None:
     return data
 
 
-def _parse_backup_entries(raw: str) -> list:
-    """Parse a TXT backup (users only)."""
-    raw = raw.replace("\r\n", "\n")
-    stripped = raw.strip()
-    if not stripped:
-        raise ValueError("File kosong. Tidak ada data untuk direstore.")
-    entries = []
-    for block in raw.split("\n\n"):
-        fields = {}
-        for line in block.splitlines():
-            if ":" in line:
-                key, _, value = line.partition(":")
-                fields[key.strip().lower()] = value.strip()
-        if not fields:
-            continue
-        entries.append({
-            "username": fields.get("username"),
-            "password": fields.get("password"),
-            "email": fields.get("email", ""),
-            "saldo": fields.get("saldo", "0"),
-        })
-    return entries
-
-
 def _load_backup_data(raw_bytes: bytes, filename: str) -> dict:
-    """Read backup from ZIP / JSON / TXT upload. Returns normalized sections."""
+    """Baca backup dari upload ZIP (manifest v3 / backup.json lama). Format
+    .json / .txt tidak lagi diterima — decoy dibawa sebagai berkas .json
+    terpisah, jadi restore harus selalu berupa ZIP."""
     name = (filename or "").lower()
     if name.endswith(".zip") or _is_zip_bytes(raw_bytes):
         try:
@@ -2586,18 +2675,7 @@ def _load_backup_data(raw_bytes: bytes, filename: str) -> dict:
             return _parse_backup_json(json.loads(inner))
         except ValueError as e:
             raise ValueError(f"Isi ZIP tidak valid: {e}")
-    try:
-        text = raw_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        raise ValueError("Isi file tidak valid (harus teks UTF-8).")
-    stripped = text.strip()
-    if stripped.startswith("{") or stripped.startswith("["):
-        try:
-            return _parse_backup_json(json.loads(stripped))
-        except ValueError as e:
-            raise ValueError(f"Format JSON tidak dikenali: {e}")
-    return {"kind": "users", "version": 1, "admin": None,
-            "users": _parse_backup_entries(text), "xl_accounts": None, "fees": None}
+    raise ValueError("Hanya file backup ZIP (.zip) yang diterima — format .json / .txt tidak lagi didukung.")
 
 
 def _validate_restore_settings(raw) -> dict | None:
@@ -2658,6 +2736,16 @@ def _validate_restore_settings(raw) -> dict | None:
         if vals and len(set(vals)) == 3 and all(v >= 1 for v in vals):
             out["xcp_positions"] = {"alt1": vals[0], "alt2": vals[1], "alt3": vals[2]}
 
+    cb = raw.get("custom_buy")
+    if isinstance(cb, dict):
+        fc = _valid_custom_family_code(str(cb.get("family_code") or ""))
+        label = str(cb.get("label") or "").strip()[:100]
+        if label or fc:
+            out["custom_buy"] = {
+                "label": label or CUSTOM_BUY_LABEL_DEFAULT,
+                "family_code": fc,
+            }
+
     return out or None
 
 
@@ -2705,6 +2793,11 @@ def _apply_restore_settings(valid_settings: dict) -> list:
     if isinstance(xp, dict):
         if _save_xcp_positions((xp["alt1"], xp["alt2"], xp["alt3"])):
             applied.append("Posisi Katalog XCP")
+
+    cb = valid_settings.get("custom_buy")
+    if isinstance(cb, dict):
+        _custom_buy_write(cb.get("label") or CUSTOM_BUY_LABEL_DEFAULT, cb.get("family_code") or "")
+        applied.append("Beli Paket Custom")
 
     if touched_state:
         _ab_write_state(st)
@@ -2834,13 +2927,44 @@ async def admin_restore_upload(
             continue
         if rp is not None and rp < 0:
             continue
+        def _norm_fee(v):
+            if v is None or isinstance(v, bool):
+                return None
+            try:
+                v = int(v)
+                return v if v >= 0 else None
+            except (TypeError, ValueError):
+                return None
         price_seen.add((fk, on))
         valid_prices.append({
             "family_key": fk,
             "option_number": on,
             "display_price": dp,
             "rewrite_price": rp,
+            "decoy_qris": str(p.get("decoy_qris") or "")[:100],
+            "decoy_pulsa": str(p.get("decoy_pulsa") or "")[:100],
+            "fee_qris": _norm_fee(p.get("fee_qris")),
+            "fee_pulsa": _norm_fee(p.get("fee_pulsa")),
         })
+
+    valid_decoys = None
+    raw_decoys = data.get("decoys")
+    if isinstance(raw_decoys, dict):
+        vd = {}
+        for ptype in ("qris", "balance"):
+            names = raw_decoys.get(ptype)
+            if not isinstance(names, dict):
+                continue
+            cleaned = {}
+            for name, cfg in names.items():
+                name = str(name).strip()
+                if name and re.fullmatch(r"[A-Za-z0-9_-]{1,60}", name) and isinstance(cfg, dict):
+                    cleaned[name] = cfg
+            if cleaned:
+                vd[ptype] = cleaned
+        # dict (mungkin kosong) = backup memang mengatur decoy (punya key) →
+        # live decoy dihapus dulu biar hasil identik dengan isi backup.
+        valid_decoys = vd
 
     valid_settings = _validate_restore_settings(data.get("settings"))
     legacy_backup = False
@@ -2863,7 +2987,7 @@ async def admin_restore_upload(
     a_email = str(admin_section.get("email") or "").strip().lower() if admin_section else ""
     has_admin = bool(a_username and a_password)
 
-    if not (has_admin or valid_users or valid_xl or valid_fees or valid_prices or valid_settings is not None):
+    if not (has_admin or valid_users or valid_xl or valid_fees or valid_prices or valid_decoys or valid_settings is not None):
         return _restore_render(request, admin_user, error="Tidak ada data valid dalam file backup.")
 
     # 2. Wipe all existing data so the restore result is identical with the backup
@@ -2877,6 +3001,11 @@ async def admin_restore_upload(
     db.expunge_all()
     with _token_lock:
         _XL_TOKEN_CACHE.clear()
+    if valid_decoys is not None:
+        _wipe_decoys()
+    # account_id sesi kurasi menunjuk id XLAccount lama yang sudah terhapus
+    # & nomor barunya bisa berbeda — paksa admin pilih ulang sesi.
+    _admin_xl_clear()
 
     # 3. Apply the backup exactly
     users_by_name = {}
@@ -2973,8 +3102,14 @@ async def admin_restore_upload(
             option_number=p["option_number"],
             display_price=p["display_price"],
             rewrite_price=p["rewrite_price"],
+            decoy_qris=p.get("decoy_qris", ""),
+            decoy_pulsa=p.get("decoy_pulsa", ""),
+            fee_qris=p.get("fee_qris"),
+            fee_pulsa=p.get("fee_pulsa"),
         ))
         price_restored += 1
+
+    decoys_restored = _restore_decoys(valid_decoys) if valid_decoys else 0
 
     # Registry family dari backup (families.json) — dipulihkan persis.
     families_restored = 0
@@ -2994,6 +3129,10 @@ async def admin_restore_upload(
         row.option_codes = str(_oc or "")[:255]
         row.qris_decoy = bool(f.get("qris_decoy"))
         row.is_active = bool(f.get("is_active"))
+        try:
+            row.sort_order = int(f.get("sort") or 0)
+        except (TypeError, ValueError):
+            row.sort_order = 0
         families_restored += 1
 
     db.commit()
@@ -3010,6 +3149,7 @@ async def admin_restore_upload(
         "xl_skipped": xl_skipped,
         "fees_restored": fee_restored,
         "prices_restored": price_restored,
+        "decoys_restored": decoys_restored,
         "families_restored": families_restored,
     }
     if valid_settings is not None:
@@ -3621,44 +3761,6 @@ def _catalog_snapshot_path():
     return os.path.join(BASE_DIR, "data", "catalog_options.json")
 
 
-_XL_FAMILY_DEFAULTS = {
-    "xcp": {"label": "Xtra Combo Plus", "code": lambda: FAMILY_CODE_XTRA_COMBO,
-            "url_prefix": "xcp", "option_codes": "25,33,35", "qris_decoy": False, "sort": 0},
-    "addon10": {"label": "Addon Xtra Combo Plus 10GB", "code": lambda: FAMILY_CODE_ADDON,
-                "url_prefix": "addon10-xcp", "option_codes": "4,5,6,7,8,9", "qris_decoy": False, "sort": 1},
-    "addon15": {"label": "Addon Xtra Combo Plus 15GB", "code": lambda: FAMILY_CODE_ADDON_15,
-                "url_prefix": "addon15-xcp", "option_codes": "4,5,6,7,8,14,18,19,20", "qris_decoy": False, "sort": 2},
-    "xtraconf": {"label": "Xtra Conference", "code": lambda: FAMILY_CODE_XTRA_CONFERENCE,
-                 "url_prefix": "xtraconf", "option_codes": "", "qris_decoy": True, "sort": 3},
-}
-
-
-def _seed_xl_families(db):
-    """Seed baris xl_families dari default — idempotent, hanya key yang hilang.
-
-    ponytail: kolom baru (url_prefix/option_codes/qris_decoy) baris lama yang
-    kosong di-backfill dari default sekali — admin bebas mengubahnya setelahnya.
-    """
-    for key, d in _XL_FAMILY_DEFAULTS.items():
-        row = db.query(XlFamily).filter(XlFamily.family_key == key).first()
-        if not row:
-            db.add(XlFamily(
-                family_key=key, label=d["label"], family_code=d["code"](),
-                url_prefix=d["url_prefix"], option_codes=d["option_codes"],
-                qris_decoy=d["qris_decoy"], sort_order=d["sort"],
-            ))
-        else:
-            if not row.url_prefix:
-                row.url_prefix = d["url_prefix"]
-            if row.qris_decoy is None:
-                row.qris_decoy = d["qris_decoy"]
-            # Backfill sekali: baris lama tanpa option_codes ambil default
-            # (addon10/15: daftar opsi berbayar katalog saat ini; xcp: alt).
-            if not str(row.option_codes or "").strip():
-                row.option_codes = d["option_codes"]
-    db.commit()
-
-
 def _family_registry():
     """Registry semua family (termasuk non-aktif): family_key -> config dict.
 
@@ -3667,7 +3769,6 @@ def _family_registry():
     """
     db = next(get_db())
     try:
-        _seed_xl_families(db)
         rows = db.query(XlFamily).order_by(XlFamily.sort_order).all()
         reg = {}
         for r in rows:
@@ -3711,10 +3812,12 @@ def _admin_xl_session_path():
 
 
 def _admin_xl_read():
+    """Sesi kurasi: referensi ke akun XL milik user terpilih (bukan login
+    OTP admin sendiri). Bisa kosong → admin belum pilih sesi."""
     try:
         with open(_admin_xl_session_path(), "r", encoding="utf-8") as f:
             d = json.load(f)
-        return d if isinstance(d, dict) and d.get("refresh_token") else None
+        return d if isinstance(d, dict) else None
     except (OSError, ValueError):
         return None
 
@@ -3736,29 +3839,80 @@ def _admin_xl_clear():
         pass
 
 
-def _admin_xl_tokens():
-    """Token API XL dari sesi admin login (bukan akun user). Refresh token
-    XL berotasi tiap refresh — simpan balik ke file sesi."""
-    sess = _admin_xl_read()
-    if not sess:
-        return None
+# ─── Beli Paket Custom ───────────────────────────────────────────────────────
+# Group paket permanen ("Beli Paket Custom"): bukan family di registry, tidak
+# bisa dihapus admin, dan tersedia di halaman Beli Paket semua user. User
+# mengetik family code sendiri (atau memakai pin dari admin); harga bisa
+# di-rewrite user (rewrite harga XL AMAN, BUKAN BUG — hanya berlaku untuk
+# group custom ini, bukan family biasa yang diatur admin).
+
+CUSTOM_FAMILY_KEY = "custom"
+CUSTOM_BUY_LABEL_DEFAULT = "Beli Paket Custom"
+
+
+def _custom_buy_path():
+    return os.path.join(BASE_DIR, "data", "custom_buy.json")
+
+
+def _custom_buy_read() -> dict:
     try:
-        tokens = xl_refresh_token(API_KEY, sess["refresh_token"], "admin")
-        if not tokens:
-            return None
-        new_sess = dict(sess)
-        if tokens.get("refresh_token"):
-            new_sess["refresh_token"] = tokens["refresh_token"]
-        try:
-            if tokens.get("refresh_expires_in"):
-                new_sess["refresh_expires_at"] = int(time.time()) + int(tokens["refresh_expires_in"])
-        except (TypeError, ValueError):
-            pass
-        _admin_xl_write(new_sess)
-        return tokens
-    except Exception as e:
-        print(f"[admin-xl] refresh gagal: {e}")
+        with open(_custom_buy_path(), "r", encoding="utf-8") as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            raise ValueError
+        return {
+            "label": str(d.get("label") or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
+            "family_code": str(d.get("family_code") or "").strip()[:64],
+        }
+    except (OSError, ValueError):
+        return {"label": CUSTOM_BUY_LABEL_DEFAULT, "family_code": ""}
+
+
+def _custom_buy_write(label: str, family_code: str):
+    path = _custom_buy_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({
+                "label": str(label or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
+                "family_code": str(family_code or "").strip()[:64],
+            }, f, ensure_ascii=False)
+    except OSError as e:
+        print(f"[custom-buy] gagal simpan: {e}")
+
+
+def _valid_custom_family_code(fc: str) -> str:
+    """Family code valid untuk custom (UID/UUID XL) — striping + cek bentuk."""
+    fc = str(fc or "").strip()
+    if not fc:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9\-]{8,64}", fc):
+        return ""
+    return fc
+
+
+def _admin_xl_tokens():
+    """Token API XL dari akun XL user terpilih (bukan login admin sendiri).
+
+    Admin memilih user + nomor yang sudah terdaftar; refresh token akun itulah
+    yang dipakai. Refresh token XL berotasi tiap refresh — hasil terbaru
+    disimpan balik ke baris akun user (lewat _get_xl_tokens)."""
+    sess = _admin_xl_read()
+    if not sess or not sess.get("account_id"):
         return None
+    db = next(get_db())
+    try:
+        acct = db.query(XLAccount).filter(XLAccount.id == sess["account_id"]).first()
+        if not acct or not acct.refresh_token:
+            _admin_xl_clear()
+            return None
+        try:
+            username = acct.user.username
+        except Exception:
+            username = ""
+    finally:
+        db.close()
+    return _get_xl_tokens(acct, username)
 
 
 def _admin_xl_fetch_catalog():
@@ -3767,7 +3921,7 @@ def _admin_xl_fetch_catalog():
     tokens = _admin_xl_tokens()
     if not tokens:
         _admin_xl_clear()
-        return False, "Sesi admin XL tidak valid. Login ulang nomor admin."
+        return False, "Sesi XL tidak valid. Pilih pengguna dengan nomor XL yang aktif."
     results = []
     for fam_key, cfg in _family_registry().items():
         if not cfg["is_active"]:
@@ -3935,6 +4089,10 @@ def _get_all_pkg_prices() -> list:
                 "option_number": r.option_number,
                 "display_price": r.display_price,
                 "rewrite_price": r.rewrite_price,
+                "decoy_qris": r.decoy_qris or "",
+                "decoy_pulsa": r.decoy_pulsa or "",
+                "fee_qris": r.fee_qris,
+                "fee_pulsa": r.fee_pulsa,
             }
             for r in rows
         ]
@@ -4020,6 +4178,8 @@ def user_xl_beli_paket(request: Request, user: User = Depends(get_current_user))
         "family_name": _family_label("xcp"),
         "sections": sections,
         "url_prefixes": {k: v["url_prefix"] for k, v in _active_families().items()},
+        "custom_buy": _custom_cfg(),
+        "custom_url": "/user/xl/custom",
     })
     return render("user/beli_paket.html", context=ctx)
 
@@ -4133,6 +4293,322 @@ async def user_xl_beli_paket_stream(request: Request, user: User = Depends(get_c
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
+
+
+# ─── Beli Paket Custom (user) ─────────────────────────────────────────────────
+# Group permanen (bukan family di registry, tak bisa dihapus). User mengetik
+# family code bebas (atau memakai pin admin), lalu browse SEMUA opsi katalog,
+# dan boleh me-rewrite harga. Rewrite harga paket XL AMAN, BUKAN BUG — disengaja
+# dan hanya berlaku di alur custom ini (family biasa yang diatur admin tidak
+# terpengaruh).
+
+def _custom_cfg() -> dict:
+    cb = _custom_buy_read()
+    return {**cb, "family_key": CUSTOM_FAMILY_KEY}
+
+
+def _parse_custom_rw(rw):
+    """Parse rewrite harga dari query. Kosong/negatif/bukan angka -> None
+    (pakai harga API). Berlaku HANYA untuk group custom."""
+    rw = str(rw or "").strip()
+    if not rw:
+        return None
+    try:
+        v = int(rw)
+    except ValueError:
+        return None
+    return v if v >= 0 else None
+
+
+def _resolve_custom_fc(fc: str, pin: int = 0) -> str | None:
+    """Family code untuk alur custom. pin=1 memakai kode pin konfigurasi admin —
+    kode pin TIDAK pernah dikirim ke klien, hanya label yang tampil ke user."""
+    if pin:
+        fc = _custom_buy_read().get("family_code") or ""
+    fc = _valid_custom_family_code(fc)
+    return fc
+
+
+def _custom_fetch_family(tokens, family_code):
+    """Katalog satu family code bebas (enterprise/migration dari API)."""
+    is_ent, mig = _family_api_params(family_code)
+    return xl_get_family(API_KEY, tokens, family_code, is_enterprise=is_ent, migration_type=mig)
+
+
+def _custom_browse_items(tokens, family_code):
+    """SEMUA opsi katalog (posisi 1..N), tak ada filter option_codes."""
+    return _build_registry_items(_custom_fetch_family(tokens, family_code), [])
+
+
+def _custom_item_and_detail(tokens, family_code, option_number):
+    """(items, detail) untuk satu paket custom by family code bebas.
+
+    item_price TETAP harga katalog API (XL menolak INVALID_PRICE kalau beda);
+    rewrite hanya lewat overwrite_amount saat settle. Custom tidak punya
+    override display/decoy admin — harga bersih dari API kecuali user rewrite.
+    """
+    family_data = _custom_fetch_family(tokens, family_code)
+    if not (family_data and family_data.get("package_variants")):
+        return None, None
+    option_number_local = 1
+    for variant in family_data["package_variants"]:
+        for option in variant.get("package_options") or []:
+            if option_number_local == option_number:
+                _api_delay()
+                pkg = xl_get_package(API_KEY, tokens, option["package_option_code"], family_code, variant["package_variant_code"])
+                if not pkg:
+                    return None, None
+                detail = _build_pkg_detail(pkg, option, variant, f"custom-{option_number}", option_number)
+                detail["rewrite_price"] = None
+                items = [PaymentItem(
+                    item_code=option["package_option_code"],
+                    product_type="",
+                    item_price=int(option["price"]),
+                    item_name=f"{variant['name']} {option['name']}".strip(),
+                    tax=0,
+                    token_confirmation=pkg.get("token_confirmation", ""),
+                )]
+                return items, detail
+            option_number_local += 1
+    return None, None
+
+
+def _custom_checkout_context(active_xl, user, detail, method, family_code, charge):
+    db = next(get_db())
+    try:
+        bal = db.query(Balance).filter(Balance.user_id == user.id).first()
+        balance = bal.balance if bal else 0
+    finally:
+        db.close()
+    fee = _pkg_fee(CUSTOM_FAMILY_KEY, detail.get("number"), method)
+    base_price = charge if charge is not None else (detail.get("price") or 0)
+    price = int(base_price or 0)
+    remaining = balance - fee
+    return {
+        "detail": detail,
+        "method": method,
+        "method_label": PAY_METHOD_LABELS.get(method, method),
+        "balance": balance,
+        "price": price,
+        "base_price": int(base_price or 0),
+        "decoy_extra": 0,
+        "decoy_threshold": 0,
+        "decoy_name": "",
+        "fee": fee,
+        "family_label": _family_label(CUSTOM_FAMILY_KEY),
+        "remaining": remaining,
+        "insufficient": remaining < 0,
+        "decoy_pulsa_notice": False,
+        "pay_url": f"/user/xl/custom/{detail.get('number')}/pay/{method}?fc={family_code}&rw="
+                   + (str(charge) if charge is not None else ""),
+        "back_url": f"/user/xl/custom/{detail.get('number')}/detail?fc={family_code}",
+    }
+
+
+@app.get("/user/xl/custom", response_class=HTMLResponse)
+def user_xl_custom_page(request: Request, user: User = Depends(get_current_user)):
+    if user.role != "user":
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+    db = next(get_db())
+    ctx = get_user_context(user, db)
+    db.close()
+    ctx.update({
+        "request": request,
+        "custom_buy": _custom_cfg(),
+    })
+    return render("user/custom_beli_paket.html", context=ctx)
+
+
+@app.get("/user/xl/custom/browse")
+def user_xl_custom_browse(fc: str = "", pin: int = 0, user: User = Depends(get_current_user)):
+    if user.role != "user":
+        return JSONResponse({"ok": False, "error": "Akses ditolak"}, status_code=403)
+    fc = _resolve_custom_fc(fc, pin)
+    if not fc:
+        return JSONResponse({"ok": False, "error": "Family code tidak valid."})
+    db = next(get_db())
+    ctx = get_user_context(user, db)
+    db.close()
+    active_xl = ctx.get("active_xl")
+    if not (active_xl and active_xl.refresh_token):
+        return JSONResponse({"ok": False, "error": "Belum ada nomor XL aktif."})
+    try:
+        _api_delay()
+        tokens = _get_xl_tokens(active_xl)
+        if not tokens:
+            return JSONResponse({"ok": False, "error": "Gagal login XL."})
+        _api_delay()
+        items = _custom_browse_items(tokens, fc)
+    except Exception as e:
+        print(f"[custom-browse] Error: {e}")
+        return JSONResponse({"ok": False, "error": "Katalog tidak ditemukan — cek family code."})
+    if not items:
+        return JSONResponse({"ok": False, "error": "Katalog kosong untuk family code ini."})
+    return JSONResponse({"ok": True, "items": items})
+
+
+@app.get("/user/xl/custom/detail")
+def user_xl_custom_detail_json(fc: str = "", pin: int = 0, n: int = 0, user: User = Depends(get_current_user)):
+    if user.role != "user":
+        return JSONResponse({"ok": False, "error": "Akses ditolak"}, status_code=403)
+    fc = _resolve_custom_fc(fc, pin)
+    if not fc or n < 1:
+        return JSONResponse({"ok": False, "error": "Parameter tidak valid."})
+    db = next(get_db())
+    ctx = get_user_context(user, db)
+    db.close()
+    active_xl = ctx.get("active_xl")
+    if not (active_xl and active_xl.refresh_token):
+        return JSONResponse({"ok": False, "error": "Belum ada nomor XL aktif."})
+    try:
+        _api_delay()
+        tokens = _get_xl_tokens(active_xl)
+        if not tokens:
+            return JSONResponse({"ok": False, "error": "Gagal login XL."})
+        _api_delay()
+        items, detail = _custom_item_and_detail(tokens, fc, n)
+    except Exception as e:
+        print(f"[custom-detail] Error: {e}")
+        return JSONResponse({"ok": False, "error": "Gagal memuat detail paket."})
+    if not detail:
+        return JSONResponse({"ok": False, "error": "Paket tidak ditemukan."})
+    return JSONResponse({"ok": True, "detail": detail})
+
+
+@app.get("/user/xl/custom/{n}/detail", response_class=HTMLResponse)
+def user_xl_custom_detail_page(request: Request, n: int, fc: str = "", pin: int = 0,
+                               user: User = Depends(get_current_user)):
+    if user.role != "user":
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+    db = next(get_db())
+    ctx = get_user_context(user, db)
+    db.close()
+    pin_mode = bool(pin)
+    ctx.update({
+        "request": request,
+        "family": CUSTOM_FAMILY_KEY,
+        "n": n,
+        "pin_mode": pin_mode,
+        "fc": fc if not pin_mode else "",
+        "custom_buy": _custom_cfg(),
+    })
+    if pin_mode:
+        if not _resolve_custom_fc("", 1):
+            return RedirectResponse(url="/user/xl/custom", status_code=303)
+    elif not _valid_custom_family_code(fc):
+        return RedirectResponse(url="/user/xl/custom", status_code=303)
+    return render("user/custom_detail_paket.html", context=ctx)
+
+
+@app.get("/user/xl/custom/{n}/checkout/{method}")
+def user_xl_custom_checkout(request: Request, n: int, method: str, fc: str = "", pin: int = 0, rw: str = "",
+                            user: User = Depends(get_current_user)):
+    if user.role != "user":
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
+    if method not in PAY_METHOD_LABELS:
+        return RedirectResponse(url="/user/xl/custom", status_code=303)
+    family_code = _resolve_custom_fc(fc, pin)
+    if not family_code:
+        return RedirectResponse(url="/user/xl/custom", status_code=303)
+    back_qs = f"?pin=1" if pin else f"?fc={family_code}"
+    db = next(get_db())
+    ctx = get_user_context(user, db)
+    db.close()
+    active_xl = ctx.get("active_xl")
+    charge = _parse_custom_rw(rw)
+    try:
+        if not (active_xl and active_xl.refresh_token):
+            return RedirectResponse(url=f"/user/xl/custom/{n}/detail{back_qs}", status_code=303)
+        _api_delay()
+        tokens = _get_xl_tokens(active_xl)
+        items, detail = _custom_item_and_detail(tokens, family_code, n)
+    except Exception as e:
+        print(f"[custom-checkout] Error: {e}")
+        items = detail = None
+    if not detail:
+        return RedirectResponse(url=f"/user/xl/custom/{n}/detail{back_qs}", status_code=303)
+    if charge is not None:
+        detail["rewrite_price"] = charge
+    cc = _custom_checkout_context(active_xl, user, detail, method, family_code, charge)
+    if pin:
+        cc["pay_url"] = f"/user/xl/custom/{n}/pay/{method}?pin=1&rw=" + (str(charge) if charge is not None else "")
+        cc["back_url"] = f"/user/xl/custom/{n}/detail?pin=1"
+    ctx.update({"request": request, **cc})
+    return render("user/checkout.html", context=ctx)
+
+
+@app.post("/user/xl/custom/{n}/pay/{method}")
+def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin: int = 0, rw: str = "",
+                       user: User = Depends(get_current_user)):
+    if user.role != "user":
+        return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
+    if method not in PAY_METHOD_LABELS:
+        return JSONResponse({"ok": False, "message": "Metode pembayaran tidak tersedia."}, status_code=400)
+    family_code = _resolve_custom_fc(fc, pin)
+    if not family_code:
+        return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
+    charge = _parse_custom_rw(rw)
+    blocked = _panel_fee_precheck(user, CUSTOM_FAMILY_KEY, n, method)
+    if blocked:
+        return blocked
+    db = next(get_db())
+    ctx = get_user_context(user, db)
+    db.close()
+    return _pay_with_fee(user, ctx,
+                         lambda: _process_payment_custom(ctx.get("active_xl"), family_code, n, method, charge),
+                         CUSTOM_FAMILY_KEY, n, method)
+
+
+def _process_payment_custom(active_xl, family_code, option_number, method, charge):
+    """Settle pembelian custom. Rewrite harga (charge) AMAN — BUKAN BUG —
+    disengaja untuk group custom; tanpa decoy/fee admin."""
+    pay_error = None
+    pay_success = None
+    detail = None
+    pay_extra = {}
+    _stdout_buf = io.StringIO()
+    with redirect_stdout(_stdout_buf):
+        if active_xl and active_xl.refresh_token:
+            try:
+                _api_delay()
+                tokens = _get_xl_tokens(active_xl)
+                items, detail = _custom_item_and_detail(tokens, family_code, option_number)
+            except Exception as e:
+                pay_error = f"Error fetching package: {e}"
+                items = None
+            if items and not pay_error:
+                if charge is not None:
+                    detail["rewrite_price"] = charge
+                try:
+                    if method == "balance":
+                        from app.client.purchase.balance import settlement_balance as pay_balance
+                        _api_delay()
+                        res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance", False)
+                        if res and res.get("status") == "SUCCESS":
+                            pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
+                        else:
+                            pay_error = f"Pembayaran gagal: {res.get('message', 'Unknown error') if res else 'No response'}"
+                    elif method == "qris":
+                        from app.client.purchase.qris import show_qris_payment
+                        _api_delay()
+                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", False)
+                        if qris_result:
+                            qris_b64, _, qris_remaining = qris_result
+                            pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
+                            pay_extra["qris_b64"] = qris_b64
+                            pay_extra["qris_remaining"] = int(qris_remaining or 0)
+                        else:
+                            pay_error = "Gagal membuat QRIS."
+                    else:
+                        pay_error = "Metode pembayaran tidak dikenal."
+                except Exception as e:
+                    pay_error = f"Error: {e}"
+            else:
+                pay_error = "Paket tidak ditemukan."
+        else:
+            pay_error = "Akun XL tidak aktif."
+    pay_extra["terminal_output"] = _stdout_buf.getvalue()
+    return detail, pay_error, pay_success, pay_extra
 
 
 def _family_fetch_spec(fam_key):
@@ -4533,6 +5009,8 @@ FAMILY_FEE_DEFAULTS = {
 }
 
 def _family_label(family_key):
+    if family_key == CUSTOM_FAMILY_KEY:
+        return _custom_buy_read().get("label") or CUSTOM_BUY_LABEL_DEFAULT
     return _family_registry().get(family_key, {}).get("label", family_key)
 
 

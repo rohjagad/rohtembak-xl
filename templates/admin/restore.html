@@ -28,9 +28,18 @@
 .restore-chk-all {
   background: #f1f5ff; border-style: dashed; font-weight: 600; color: #1a1a2e;
 }
-#restoreDoneModal .modal { max-width: 420px; }
-#restoreDoneModal .modal h3 { color: #047857; }
-#restoreDoneModal .modal-body { margin-bottom: 14px; }
+#restoreDoneModal .modal {
+  max-width: 420px;
+  max-height: min(82vh, 560px);
+  display: flex; flex-direction: column;
+}
+#restoreDoneModal .modal h3 { color: #047857; margin-bottom: 0; }
+#restoreDoneModal .modal-body { margin-bottom: 12px; }
+#restoreDoneModal .restore-result-summary {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 #restoreConfirmModal .modal { max-width: 420px; }
 #restoreConfirmModal .modal h3 { color: #b45309; }
 #restoreConfirmModal .modal-body { margin-bottom: 10px; font-size: 13.5px; line-height: 1.6; color: #374151; }
@@ -85,6 +94,9 @@
             <div><span>Nomor XL</span><div class="val">dipulihkan <strong>{{ result.xl_restored }}</strong>{% if result.xl_skipped %} · dilewati {{ result.xl_skipped }}{% endif %}</div></div>
             <div><span>Fee paket</span><div class="val">dipulihkan <strong>{{ result.fees_restored }}</strong></div></div>
             <div><span>Harga paket</span><div class="val">dipulihkan <strong>{{ result.prices_restored }}</strong></div></div>
+            {% if result.decoys_restored is defined %}
+            <div><span>Decoy package</span><div class="val">dipulihkan <strong>{{ result.decoys_restored }}</strong></div></div>
+            {% endif %}
             {% if result.families_restored is defined %}
             <div><span>Registry family XL</span><div class="val">dipulihkan <strong>{{ result.families_restored }}</strong></div></div>
             {% endif %}
@@ -112,9 +124,9 @@
             <div class="dropzone" id="dropzone" onclick="document.getElementById('backup_file').click()">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 <div class="dz-title">Klik atau tarik file ke sini</div>
-                <div class="dz-sub">Format yang didukung: .zip (backup lengkap), .json, .txt</div>
+                <div class="dz-sub">Format yang didukung: .zip (backup lengkap QRIS/XL/decoy/setting)</div>
             </div>
-            <input type="file" name="backup_file" id="backup_file" accept=".zip,.json,.txt,application/zip,application/json,text/plain" onchange="updateDropzone(this)" style="display:none;">
+            <input type="file" name="backup_file" id="backup_file" accept=".zip,application/zip" onchange="updateDropzone(this)" style="display:none;">
         </div>
 
         <div style="display:flex;gap:8px;">

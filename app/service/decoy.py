@@ -32,13 +32,8 @@ def decoy_type_dir(payment_type: str) -> str:
 
 def decoy_config_path(payment_type: str, name: str = "default") -> str:
     path = os.path.join(decoy_type_dir(payment_type), f"{name}.json")
-    if os.path.exists(path):
-        return path
-    # Fallback legacy: decoy_data/decoy-default-{type}.json
-    if name == "default":
-        legacy = os.path.join(DECOY_DATA_DIR, f"decoy-default-{payment_type}.json")
-        if os.path.exists(legacy):
-            return legacy
+    # (Seed legacy decoy-default-{type}.json sudah dihapus dari codebase —
+    # tidak ada fallback ke file seed lagi. Decoy hanya dari hasil buat admin.)
     return path
 
 
@@ -70,18 +65,12 @@ def save_decoy_config(payment_type: str, name: str, config: dict) -> str:
 
 
 def delete_decoy_config(payment_type: str, name: str) -> bool:
-    # Hapus config default juga: bisa legacy decoy-default-{type}.json maupun
-    # decoy_data/{type}/default.json. Default sekarang "biasa" — boleh dihapus.
+    # Hapus config default juga: decoy default adalah config biasa — boleh
+    # dihapus. File seed legacy (decoy-default-*) bukan bagian codebase lagi.
     path = decoy_config_path(payment_type, name)
     if path and os.path.exists(path):
         os.remove(path)
         return True
-    # Berkas legacy mungkin sudah hilang tapi file default.json masih ada.
-    if name == "default":
-        alt = os.path.join(decoy_type_dir(payment_type), "default.json")
-        if alt != path and os.path.exists(alt):
-            os.remove(alt)
-            return True
     return False
 
 
