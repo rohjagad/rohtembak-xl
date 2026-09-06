@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <div class="header-section">
     <div>
         <div class="page-title">Atur Paket XL (Custom)</div>
-        <div class="page-subtitle">Kelola label tampilan &amp; family code pin group custom</div>
+        <div class="page-subtitle">Kelola label grup &amp; pin family code</div>
     </div>
 </div>
 
@@ -71,36 +71,18 @@ document.addEventListener('DOMContentLoaded', function () {
         <thead>
             <tr>
                 <th>Label Tampilan</th>
-                <th>Family Code Pin</th>
                 <th></th>
             </tr>
         </thead>
         <tbody>
             <tr>
                 <td data-label="Label Tampilan"><strong>{{ custom_buy.label }}</strong></td>
-                <td data-label="Family Code Pin">
-                    {% if custom_buy.pins %}
-                    <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                        {% for p in custom_buy.pins %}
-                        <span style="display:inline-flex;align-items:center;gap:4px;border:1px solid #d1d5db;border-radius:999px;padding:2px 4px 2px 12px;font-family:monospace;font-size:12px;background:#f9fafb;">
-                            Pin {{ loop.index }}
-                            <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
-                                <input type="hidden" name="pin_index" value="{{ loop.index }}">
-                                <button type="submit" class="btn btn-sm" title="Unpin (hapus pin ini)" style="border:none;background:transparent;color:#dc2626;font-size:16px;line-height:1;padding:2px 6px;cursor:pointer;">&times;</button>
-                            </form>
-                        </span>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <span style="color:#9ca3af;font-size:13px;">Belum ada pin.</span>
-                    {% endif %}
-                </td>
                 <td data-label="" style="text-align:right;">
-                    <button type="button" class="btn btn-sm btn-outline custom-edit-toggle" data-key="custom" title="Ubah label atau pin">Edit</button>
+                    <button type="button" class="btn btn-sm btn-outline custom-edit-toggle" data-key="custom" title="Ubah label tampilan grup">Edit</button>
                 </td>
             </tr>
             <tr class="edit-row" data-edit="custom" hidden>
-                <td colspan="3" style="background:#fafafa;">
+                <td colspan="2" style="background:#fafafa;">
                     <form method="POST" action="/prices-xl/custom/save" class="price-form">
                         <label>
                             <span class="lbl">Label tampilan</span>
@@ -108,19 +90,55 @@ document.addEventListener('DOMContentLoaded', function () {
                         </label>
                         <button type="submit" class="btn btn-sm btn-primary price-btn">Simpan Label</button>
                     </form>
-                    <div style="border-top:1px solid #e5e7eb;margin:14px 0 12px;"></div>
-                    <div class="lbl" style="margin-bottom:6px;">Tambah pin baru</div>
-                    <form method="POST" action="/prices-xl/custom/pin/add" class="price-form">
-                        <label>
-                            <span class="lbl">Family code pin</span>
-                            <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID / kode family XL" required title="Family code XL yang dipin — user bisa browse tanpa mengetik, kode tidak ditampilkan">
-                        </label>
-                        <button type="submit" class="btn btn-sm btn-primary price-btn">Pin</button>
-                    </form>
                 </td>
             </tr>
         </tbody>
     </table>
+</div>
+
+<div class="card" style="margin-top:16px;">
+    <h2 style="font-size:16px;margin-bottom:12px;">Family Code Pin</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Label</th>
+                <th>Family Code</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in custom_buy.pins %}
+            <tr>
+                <td data-label="Label">{{ p.label }}</td>
+                <td data-label="Family Code" style="font-family:monospace;">{{ p.family_code }}</td>
+                <td data-label="" style="text-align:right;">
+                    <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
+                        <input type="hidden" name="pin_index" value="{{ loop.index }}">
+                        <button type="submit" class="btn btn-sm btn-outline" title="Unpin (hapus pin ini)" style="color:#dc2626;border-color:#fecaca;">Unpin</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="3"><div class="empty-state" style="display:block;">Belum ada pin.</div></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid #eee;">
+        <div class="lbl" style="margin-bottom:6px;">Tambah pin baru</div>
+        <form method="POST" action="/prices-xl/custom/pin/add" class="price-form">
+            <label>
+                <span class="lbl">Label</span>
+                <input type="text" name="label" class="form-control price-input" maxlength="100" placeholder="mis. Paket Hemat" title="Nama yang dilihat user di halaman Beli Paket">
+            </label>
+            <label>
+                <span class="lbl">Family code</span>
+                <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID / kode family XL" required title="Family code XL yang dipin — user bisa browse tanpa mengetik kodenya (kode tidak ditampilkan)">
+            </label>
+            <button type="submit" class="btn btn-sm btn-primary price-btn">Pin</button>
+        </form>
+    </div>
 </div>
 
 <a href="/prices-xl" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Atur Paket XL</a>

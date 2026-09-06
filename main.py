@@ -1226,11 +1226,12 @@ def admin_prices_xl_custom_save(
 
 @app.post("/prices-xl/custom/pin/add")
 def admin_prices_xl_custom_pin_add(
+    label: str = Form(""),
     family_code: str = Form(""),
     user: User = Depends(get_current_user),
 ):
-    """Pin family code baru — user bisa browse paket keluarga ini tanpa
-    mengetik kodenya (kode pin tidak pernah ditampilkan ke user)."""
+    """Pin family code baru dengan label opsional — user bisa browse paket
+    keluarga ini tanpa mengetik kodenya (kode pin tidak pernah ditampilkan)."""
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
     fc = _valid_custom_family_code(family_code)
@@ -1238,8 +1239,11 @@ def admin_prices_xl_custom_pin_add(
         return RedirectResponse(url="/prices-xl-custom?err=pin", status_code=303)
     cur = _custom_buy_read()
     pins = cur.get("pins") or []
-    if fc not in pins:
-        pins = pins + [fc]
+    if fc not in {p["family_code"] for p in pins}:
+        pins = pins + [{
+            "label": str(label or "").strip()[:100] or cur.get("label") or CUSTOM_BUY_LABEL_DEFAULT,
+            "family_code": fc,
+        }]
     _custom_buy_write(cur.get("label") or CUSTOM_BUY_LABEL_DEFAULT, pins)
     return RedirectResponse(url="/prices-xl-custom", status_code=303)
 
@@ -2797,11 +2801,11 @@ def _validate_restore_settings(raw) -> dict | None:
 
     cb = raw.get("custom_buy")
     if isinstance(cb, dict):
-        pins = _norm_custom_pins(cb.get("pins"))
+        pins = _norm_custom_pins(cb.get("pins"), CUSTOM_BUY_LABEL_DEFAULT)
         if not pins:
             fc = _valid_custom_family_code(str(cb.get("family_code") or ""))
             if fc:
-                pins = [fc]
+                pins = [{"label": CUSTOM_BUY_LABEL_DEFAULT, "family_code": fc}]
         label = str(cb.get("label") or "").strip()[:100]
         if label or pins:
             out["custom_buy"] = {
@@ -3917,15 +3921,22 @@ def _custom_buy_path():
     return os.path.join(BASE_DIR, "data", "custom_buy.json")
 
 
-def _norm_custom_pins(raw) -> list:
-    """Normalisasi daftar family code pin (strip, validasi, dedupe)."""
+def _norm_custom_pins(raw, default_label: str = "") -> list:
+    """Normalisasi daftar family code pin → [{"label", "family_code"}].
+    Entri legacy bertipe string/pin tunggal dianggap family code dengan
+    label default. Dedupe by family_code."""
     vals = raw if isinstance(raw, list) else []
     pins = []
     seen = set()
     for v in vals:
-        fc = _valid_custom_family_code(str(v or ""))
+        if isinstance(v, dict):
+            fc = _valid_custom_family_code(str(v.get("family_code") or ""))
+            lbl = str(v.get("label") or default_label).strip()[:100]
+        else:
+            fc = _valid_custom_family_code(str(v or ""))
+            lbl = str(default_label or "").strip()[:100]
         if fc and fc not in seen:
-            pins.append(fc)
+            pins.append({"label": lbl, "family_code": fc})
             seen.add(fc)
     return pins
 
@@ -3938,15 +3949,15 @@ def _custom_buy_read() -> dict:
             raise ValueError
     except (OSError, ValueError):
         d = {}
-    pins = _norm_custom_pins(d.get("pins"))
+    pins = _norm_custom_pins(d.get("pins"), CUSTOM_BUY_LABEL_DEFAULT)
     old = _valid_custom_family_code(str(d.get("family_code") or ""))
     if not pins and old:
-        pins = [old]
+        pins = [{"label": CUSTOM_BUY_LABEL_DEFAULT, "family_code": old}]
     return {
         "label": str(d.get("label") or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
         "pins": pins,
-        # Backward-compat: kode pin pertama tetap diekspos sebagai family_code.
-        "family_code": pins[0] if pins else "",
+        # Backward-compat: family code pin pertama tetap diekspos sebagai family_code.
+        "family_code": pins[0]["family_code"] if pins else "",
     }
 
 
@@ -3957,7 +3968,7 @@ def _custom_buy_write(label: str, pins: list):
         with open(path, "w", encoding="utf-8") as f:
             json.dump({
                 "label": str(label or CUSTOM_BUY_LABEL_DEFAULT).strip()[:100] or CUSTOM_BUY_LABEL_DEFAULT,
-                "pins": _norm_custom_pins(pins),
+                "pins": _norm_custom_pins(pins, label or CUSTOM_BUY_LABEL_DEFAULT),
             }, f, ensure_ascii=False)
     except OSError as e:
         print(f"[custom-buy] gagal simpan: {e}")
@@ -4409,7 +4420,7 @@ def _resolve_custom_fc(fc: str, pin: int = 0) -> str | None:
     saat user masih memakai index lama)."""
     if pin:
         pins = _custom_buy_read().get("pins") or []
-        fc = pins[pin - 1] if 1 <= pin <= len(pins) else (pins[0] if pins else "")
+        fc = pins[pin - 1]["family_code"] if 1 <= pin <= len(pins) else (pins[0]["family_code"] if pins else "")
     fc = _valid_custom_family_code(fc)
     return fc
 

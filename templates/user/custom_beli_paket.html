@@ -71,8 +71,9 @@
 <script>
 window.BANNER_SSE = false;
 var PINNED_FC = "";
-var PIN_COUNT = {{ custom_buy.pins|length }};
-var PIN_LABEL = "{{ custom_buy.label }}";
+var PIN_LABELS = [{% for p in custom_buy.pins %}{{ p.label|tojson }}{% if not loop.last %},{% endif %}{% endfor %}];
+var PIN_COUNT = PIN_LABELS.length;
+var GROUP_LABEL = "{{ custom_buy.label }}";
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -138,7 +139,7 @@ function browsePin(idx) {
     .then(function(res) {
       if (res.ok) {
         var title = document.getElementById('custom-title');
-        if (title) title.textContent = 'Beli Paket Custom — ' + PIN_LABEL + (PIN_COUNT > 1 ? ' #' + idx : '');
+        if (title) title.textContent = 'Beli Paket Custom — ' + (PIN_LABELS[idx - 1] || PIN_LABELS[0] || GROUP_LABEL);
         renderGrid(box, res.items, { pin: idx });
       } else {
         if (err) { err.textContent = res.error || 'Gagal memuat katalog pin.'; err.hidden = false; }
@@ -187,7 +188,7 @@ document.addEventListener('DOMContentLoaded', function() {
       </label>
       {% if custom_buy.pins %}
       {% for p in custom_buy.pins %}
-      <button type="button" class="btn btn-sm btn-success" onclick="browsePin({{ loop.index }})" style="flex-shrink:0;">{{ custom_buy.label }}{% if custom_buy.pins|length > 1 %} #{{ loop.index }}{% endif %} — Browse</button>
+      <button type="button" class="btn btn-sm btn-success" onclick="browsePin({{ loop.index }})" style="flex-shrink:0;">{{ p.label }} — Browse</button>
       {% endfor %}
       {% endif %}
     </div>
