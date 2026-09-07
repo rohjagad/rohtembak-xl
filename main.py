@@ -1328,16 +1328,15 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
             if data:
                 if fam_code == FAMILY_CODE_XTRA_COMBO:
                     _save_xcp_catalog(data)
-                items = _build_registry_items(data, cfg["option_codes"])
-                total = sum(len(v.get("package_options") or []) for v in (data.get("package_variants") or []))
+                # Browse selalu menampilkan SEMUA opsi katalog — filter Option
+                # codes di Atur Paket XL hanya menentukan apa yang "di group".
+                items = _build_registry_items(data, [])
                 rows = [
                     {"number": it["number"],
                      "name": " ".join(x for x in (it.get("label"), it.get("size")) if x) or it.get("name") or "-",
                      "price": f"{it['price']:,}".replace(",", ".") if it.get("price") is not None else "-"}
                     for it in items
                 ]
-                if cfg["option_codes"] and total > len(items):
-                    note = f"Menampilkan {len(items)} opsi terpilih dari {total} opsi katalog. Kosongkan Option codes di halaman Atur Paket XL untuk menampilkan semua."
             elif not error:
                 error = "Katalog kosong / tidak ditemukan. Cek family code."
     else:
