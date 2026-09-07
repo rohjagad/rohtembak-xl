@@ -29,8 +29,6 @@
                 <th>Nama Paket</th>
                 <th>Harga API (IDR)</th>
                 <th>Status</th>
-                <th>Display (IDR)</th>
-                <th>Rewrite (IDR)</th>
                 <th></th>
             </tr>
         </thead>
@@ -46,12 +44,6 @@
                     {% else %}
                     <span class="price-hint">—</span>
                     {% endif %}
-                </td>
-                <td data-label="Display (IDR)">
-                    <input type="number" name="display_price" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:130px;" form="add-{{ fam_key }}-{{ it.number }}">
-                </td>
-                <td data-label="Rewrite (IDR)">
-                    <input type="number" name="rewrite_price" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:130px;" form="add-{{ fam_key }}-{{ it.number }}">
                 </td>
                 <td>
                     <form method="POST" action="/prices-xl/pkg/add" class="price-form" id="add-{{ fam_key }}-{{ it.number }}">
