@@ -925,6 +925,44 @@ def admin_decoy_delete(
     return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
 
 
+# Cache nama paket utk /prices-xl: LIVE dari API XL, di-cache di memori selama
+# umur sesi (TTL 9.5 menit = umur access token). Kunci = akun+nomor XL sesi
+# admin — ganti sesi/nomor = otomatis cache baru. Tidak disimpan ke disk.
+_admin_name_cache: dict = {}
+_admin_name_prev: dict = {}
+
+
+def _admin_family_name_map(acct_key, family_key, fam_code, tokens):
+    """Map option number -> {name,label,size,price} utk render /prices-xl.
+
+    Live fetch dari API XL (serial agar refresh token tak berotasi barengan).
+    Hasil di-cache di memori selama TTL sesi; kalau fetch gagal, pakai hasil
+    terakhir yang sukses (fallback, bukan nama yang disimpan permanen).
+    """
+    ck = (acct_key, family_key)
+    now = time.time()
+    entry = _admin_name_cache.get(ck)
+    if entry and entry[1] > now:
+        return entry[0]
+    data = None
+    try:
+        is_ent, mig = _family_api_params(fam_code)
+        with _catalog_fetch_lock:
+            _api_delay()
+            data = xl_get_family(API_KEY, tokens, fam_code, is_enterprise=is_ent, migration_type=mig)
+    except Exception as e:
+        print(f"[prices-xl] nama live {family_key} gagal: {e}")
+        data = None
+    if data:
+        items = _build_registry_items(data, [])
+        m = {it["number"]: it for it in items}
+        _admin_name_cache[ck] = (m, now + _DECOY_PRICE_TTL)
+        _admin_name_prev[ck] = m
+        return m
+    prev = _admin_name_prev.get(ck)
+    return prev if isinstance(prev, dict) else {}
+
+
 @app.get("/prices-xl", response_class=HTMLResponse)
 def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user)):
     if user.role != "admin":
@@ -939,24 +977,36 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
         ov_map[(ov.family_key, ov.option_number)] = ov
     reg = _family_registry()
     fees = _get_all_family_fees()
+    # Nama & harga API diambil LIVE dari API XL (sesi admin aktif), di-cache
+    # di memori selama umur sesi (TTL ~9.5 menit = umur access token). Cache
+    # terkunci ke akun+nomor XL yang dipilih admin — ganti sesi = cache baru.
+    admin_sess = _admin_xl_read()
+    acct_key = None
+    if admin_sess:
+        acct_key = f"{admin_sess.get('account_id')}:{admin_sess.get('phone_number') or ''}"
+    tokens = None
+    if admin_sess:
+        with _catalog_fetch_lock:
+            tokens = _admin_xl_tokens()
     rows = []
     for fam, cfg in reg.items():
         row = {"key": fam, "label": cfg["label"], "pkgs": []}
         # Tabel paket KOSONG by default — baris = option codes yang ditambahkan
-        # admin (+ override orphan). Nama paket dari snapshot (hasil Browse
-        # Package) bila tersedia.
-        snap = {it.get("number"): it for it in _load_catalog_snapshot(fam) if isinstance(it, dict)}
+        # admin (+ override orphan). Nama paket live dari API per nomor.
         nums = set(cfg["option_codes"]) | {n for (fk, n) in ov_map if fk == fam}
+        name_map = {}
+        if nums and tokens:
+            name_map = _admin_family_name_map(acct_key, fam, cfg["family_code"], tokens)
         for i, num in enumerate(sorted(nums), start=1):
             ov = ov_map.get((fam, num))
-            info = snap.get(num) or {}
+            info = name_map.get(num) or {}
             label = info.get("name") or " ".join(x for x in (info.get("label"), info.get("size")) if x)
             name = label or f"Option #{num}"
             api_price = None
             if info.get("price") is not None:
                 api_price = _fmt_harga(info["price"])
-            if num not in snap:
-                name += " (belum ada di snapshot — Browse dulu)"
+            if not name_map.get(num):
+                name += " (browse dulu utk nama)"
             row["pkgs"].append({
                 "number": num,
                 "name": name,
@@ -969,7 +1019,6 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
                 "fee_qris": (ov.fee_qris if ov and ov.fee_qris is not None else fees.get(_fee_key(fam, "qris"), 0)),
             })
         rows.append(row)
-    admin_sess = _admin_xl_read()
     admin_acct_groups = []
     db2 = next(get_db())
     try:
@@ -1271,13 +1320,6 @@ def admin_prices_xl_family_delete(
         db.commit()
     finally:
         db.close()
-    try:
-        snap = _read_snapshot_file()
-        if family_key in snap:
-            del snap[family_key]
-            _write_snapshot_file(snap)
-    except Exception as e:
-        print(f"[family-delete] snapshot cleanup gagal: {e}")
     return RedirectResponse(url="/prices-xl", status_code=303)
 
 
@@ -1326,14 +1368,9 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
                 data = None
                 error = f"Gagal fetch katalog: {e}"
             if data:
-                if fam_code == FAMILY_CODE_XTRA_COMBO:
-                    _save_xcp_catalog(data)
                 # Browse selalu menampilkan SEMUA opsi katalog — filter Option
                 # codes di Atur Paket XL hanya menentukan apa yang "di group".
                 items = _build_registry_items(data, [])
-                # Simpan snapshot utk family ini agar nama paket muncul otomatis
-                # di halaman Atur Paket XL (tanpa manual mapping lagi).
-                _save_catalog_snapshot(family_key, items)
                 rows = [
                     {"number": it["number"],
                      "name": " ".join(x for x in (it.get("label"), it.get("size")) if x) or it.get("name") or "-",
@@ -1345,14 +1382,12 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
     else:
         error = "Belum ada sesi XL dipilih."
     selected = set(cfg["option_codes"])
-    snap = {it.get("number"): it for it in _load_catalog_snapshot(family_key) if isinstance(it, dict)}
     return render("admin/browse_family.html", context={
         "request": request,
         "user": user,
         "fam_key": family_key,
         "label": cfg["label"],
         "rows": rows,
-        "snap_rows": snap,
         "selected": selected,
         "note": note,
         "error": error,
@@ -3811,10 +3846,6 @@ def _build_registry_items(family_data, option_codes):
 
 
 
-def _catalog_snapshot_path():
-    return os.path.join(BASE_DIR, "data", "catalog_options.json")
-
-
 def _family_registry():
     """Registry semua family (termasuk non-aktif): family_key -> config dict.
 
@@ -3996,34 +4027,25 @@ def _admin_xl_tokens():
 
 
 def _admin_xl_fetch_catalog():
-    """Fetch katalog semua family pakai sesi admin XL → perbarui snapshot.
-    Return (ok, pesan)."""
+    """Fetch katalog semua family pakai sesi admin XL → isi cache NAMA memori
+    (TDK disimpan ke disk). Return (ok, pesan)."""
     tokens = _admin_xl_tokens()
     if not tokens:
         _admin_xl_clear()
         return False, "Sesi XL tidak valid. Pilih pengguna dengan nomor XL yang aktif."
+    xl_sess = _admin_xl_read() or {}
+    acct_key = f"{xl_sess.get('account_id')}:{xl_sess.get('phone_number') or ''}"
     results = []
+    ok = False
     for fam_key, cfg in _family_registry().items():
         if not cfg["is_active"]:
             continue
-        fam_code = cfg["family_code"]
-        is_ent, mig = _family_api_params(fam_code)
-        _api_delay()
-        try:
-            data = xl_get_family(API_KEY, tokens, fam_code, is_enterprise=is_ent, migration_type=mig)
-        except Exception as e:
-            results.append((fam_key, f"error: {e}"))
-            continue
-        if not data:
-            results.append((fam_key, "kosong"))
-            continue
-        if fam_code == FAMILY_CODE_XTRA_COMBO:
-            _save_xcp_catalog(data)
-        cfg = _active_families().get(fam_key) or {}
-        items = _build_registry_items(data, cfg.get("option_codes") or [])
-        _save_catalog_snapshot(fam_key, items)
-        results.append((fam_key, f"{len(items)} item"))
-    ok = any(("error" not in msg and msg != "kosong") for _f, msg in results)
+        m = _admin_family_name_map(acct_key, fam_key, cfg["family_code"], tokens)
+        if m:
+            ok = True
+            results.append((fam_key, f"{len(m)} item"))
+        else:
+            results.append((fam_key, "gagal"))
     return ok, "; ".join(f"{f}: {m}" for f, m in results)
 
 
@@ -4056,66 +4078,6 @@ def _save_xcp_positions(vals):
         return False
     finally:
         db.close()
-
-
-def _read_snapshot_file():
-    try:
-        with open(_catalog_snapshot_path(), "r", encoding="utf-8") as f:
-            snap = json.load(f)
-        return snap if isinstance(snap, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _write_snapshot_file(snap):
-    path = _catalog_snapshot_path()
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(snap, f, ensure_ascii=False)
-    except OSError as e:
-        print(f"[catalog-snapshot] gagal simpan: {e}")
-
-
-def _save_catalog_snapshot(family_key, items):
-    """Simpan daftar paket (number, label, size, harga API) dari fetch
-    beli-paket/browse terakhir — dipakai /prices-xl untuk render nama paket.
-
-    Disimpan untuk SEMUA family (penomoran posisional dari API XL, sama
-    dengan alur pembelian). Snapshot regeneratif — hilang/katalog berubah =
-    terisi ulang saat user/admin browse. Kunci "xcp" khusus lewat
-    _save_xcp_catalog (berisi name utuh utk form Alternatif 1/2/3).
-    """
-    if family_key == "xcp":
-        return
-    snap = _read_snapshot_file()
-    snap[family_key] = [
-        {"number": it.get("number"), "label": it.get("label"),
-         "size": it.get("size"), "price": it.get("price")}
-        for it in items
-    ]
-    _write_snapshot_file(snap)
-
-
-def _save_xcp_catalog(family_data):
-    """Simpan daftar LENGKAP opsi XCP (semua posisi, tak difilter) — sumber
-    nama untuk form urutan Alternatif 1/2/3 di /prices-xl."""
-    if not (family_data and family_data.get("package_variants")):
-        return
-    opts = []
-    number = 1
-    for variant in family_data["package_variants"]:
-        for option in variant.get("package_options") or []:
-            opts.append({"number": number, "name": option.get("name"), "price": option.get("price")})
-            number += 1
-    snap = _read_snapshot_file()
-    snap["xcp"] = opts
-    _write_snapshot_file(snap)
-
-
-def _load_catalog_snapshot(family_key):
-    rows = _read_snapshot_file().get(family_key)
-    return rows if isinstance(rows, list) else []
 
 
 def _pkg_price_override(family_key, option_number):
@@ -4319,12 +4281,8 @@ def _stream_beli_paket_events(active_xl, want, disconnected=None):
             result = []
             try:
                 data = xl_get_family(API_KEY, tokens, fam_code, is_enterprise=is_ent, migration_type=mig)
-                if fam_code == FAMILY_CODE_XTRA_COMBO:
-                    _save_xcp_catalog(data)
                 result = builder(data) if data else []
                 result = _apply_pkg_list_price(f, result)
-                if ok and result:
-                    _save_catalog_snapshot(f, result)
             except Exception as e:
                 print(f"[beli-paket] Error: {e}")
                 ok = False
