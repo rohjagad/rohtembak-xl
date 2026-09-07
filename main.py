@@ -1331,6 +1331,9 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
                 # Browse selalu menampilkan SEMUA opsi katalog — filter Option
                 # codes di Atur Paket XL hanya menentukan apa yang "di group".
                 items = _build_registry_items(data, [])
+                # Simpan snapshot utk family ini agar nama paket muncul otomatis
+                # di halaman Atur Paket XL (tanpa manual mapping lagi).
+                _save_catalog_snapshot(family_key, items)
                 rows = [
                     {"number": it["number"],
                      "name": " ".join(x for x in (it.get("label"), it.get("size")) if x) or it.get("name") or "-",
@@ -4075,14 +4078,15 @@ def _write_snapshot_file(snap):
 
 
 def _save_catalog_snapshot(family_key, items):
-    """Simpan daftar paket addon (number, label, size, harga API) dari fetch
-    beli-paket terakhir — dipakai /prices-xl untuk render form.
+    """Simpan daftar paket (number, label, size, harga API) dari fetch
+    beli-paket/browse terakhir — dipakai /prices-xl untuk render nama paket.
 
-    ponytail: penomoran addon posisional dari API XL (sama dengan alur
-    pembelian). Snapshot regeneratif — hilang/katalog berubah = terisi ulang
-    saat user browse. Batasi ke addon10/15; xcp lewat _save_xcp_catalog.
+    Disimpan untuk SEMUA family (penomoran posisional dari API XL, sama
+    dengan alur pembelian). Snapshot regeneratif — hilang/katalog berubah =
+    terisi ulang saat user/admin browse. Kunci "xcp" khusus lewat
+    _save_xcp_catalog (berisi name utuh utk form Alternatif 1/2/3).
     """
-    if family_key not in ("addon10", "addon15"):
+    if family_key == "xcp":
         return
     snap = _read_snapshot_file()
     snap[family_key] = [
