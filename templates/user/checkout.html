@@ -83,7 +83,7 @@ function payNow() {
     el.textContent = Array(n + 1).join('.');
   }, 300);
 
-  fetch('{{ pay_url }}', {method: 'POST'})
+  fetch('{{ pay_url | safe }}', {method: 'POST'})
     .then(function(r) { return r.json(); })
     .then(function(res) {
       stopPayDots();
