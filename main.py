@@ -4628,18 +4628,24 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                         if res and res.get("status") == "SUCCESS":
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
                         else:
-                            pay_error = f"Pembayaran gagal: {res.get('message', 'Unknown error') if res else 'No response'}"
+                            pay_error = _friendly_settle_msg(
+                                res.get("message") if isinstance(res, dict) else None,
+                                default=f"Pembayaran gagal: {res.get('message', 'No response') if isinstance(res, dict) else 'No response'}"
+                            )
                     elif method == "qris":
                         from app.client.purchase.qris import show_qris_payment
                         _api_delay()
                         qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", False)
-                        if qris_result:
+                        if isinstance(qris_result, tuple) and qris_result:
                             qris_b64, _, qris_remaining = qris_result
                             pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
                         else:
-                            pay_error = "Gagal membuat QRIS."
+                            pay_error = _friendly_settle_msg(
+                                qris_result.get("message") if isinstance(qris_result, dict) else None,
+                                default="Gagal membuat QRIS."
+                            )
                     else:
                         pay_error = "Metode pembayaran tidak dikenal."
                 except Exception as e:
@@ -4918,6 +4924,22 @@ def _parse_bizz_total(error_msg):
     return None
 
 
+def _friendly_settle_msg(msg, default="Pembayaran gagal."):
+    """Terjemahkan pesan penolakan jumlah dari API XL jadi bahasa Indonesia
+    yang jelas. Pola TUI: 'harga yang benar adalah XXXX'. Strict — tidak
+    auto-correct; hanya memberi tahu jumlah valid yang diminta XL."""
+    raw = str(msg or "")
+    m = re.search(r"valid\s+(?:payment\s+)?amount\s+is\s+([\d.,]+)", raw, re.IGNORECASE) \
+        or re.search(r"(?:not\s+valid|invalid)[^.]*?([\d.,]+)", raw, re.IGNORECASE)
+    if m:
+        try:
+            valid = int(m.group(1).replace(".", "").replace(",", ""))
+            return f"Pembayaran gagal: harga yang benar adalah {_fmt_thousand(valid)} IDR."
+        except (ValueError, TypeError):
+            pass
+    return default
+
+
 def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_name="default"):
     # rewrite_price (dari /prices-xl) menang atas display/api — ini jumlah
     # yang benar-benar ditagih; item_price PaymentItem TETAP harga asli API.
@@ -4976,18 +4998,24 @@ def _process_payment(active_xl, fam_key, option_number, method):
                         if res and res.get("status") == "SUCCESS":
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
                         else:
-                            pay_error = f"Pembayaran gagal: {res.get('message', 'Unknown error') if res else 'No response'}"
+                            pay_error = _friendly_settle_msg(
+                                res.get("message") if isinstance(res, dict) else None,
+                                default=f"Pembayaran gagal: {res.get('message', 'No response') if isinstance(res, dict) else 'No response'}"
+                            )
                     elif method == "qris":
                         from app.client.purchase.qris import show_qris_payment
                         _api_delay()
                         qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", use_decoy, decoy_name)
-                        if qris_result:
+                        if isinstance(qris_result, tuple) and qris_result:
                             qris_b64, _, qris_remaining = qris_result
                             pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
                         else:
-                            pay_error = "Gagal membuat QRIS."
+                            pay_error = _friendly_settle_msg(
+                                qris_result.get("message") if isinstance(qris_result, dict) else None,
+                                default="Gagal membuat QRIS."
+                            )
                     else:
                         pay_error = "Metode pembayaran tidak dikenal."
                 except Exception as e:

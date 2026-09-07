@@ -66,7 +66,7 @@ def settlement_qris(
     if not isinstance(payment_res, dict) or payment_res.get("status") != "SUCCESS":
         print("Failed to fetch payment methods.")
         print(f"Error: {payment_res}")
-        return None
+        return payment_res if isinstance(payment_res, dict) else None
     
     token_payment = payment_res["data"]["token_payment"]
     ts_to_sign = payment_res["data"]["timestamp"]
@@ -170,7 +170,7 @@ def settlement_qris(
         if decrypted_body["status"] != "SUCCESS":
             print("Failed to initiate settlement.")
             print(f"Error: {decrypted_body}")
-            return None
+            return decrypted_body
         
         transaction_id = decrypted_body["data"]["transaction_code"]
         
@@ -225,9 +225,9 @@ def show_qris_payment(
         stage_token
     )
     
-    if not transaction_id:
+    if not isinstance(transaction_id, str):
         print("Failed to create QRIS transaction.")
-        return
+        return transaction_id if isinstance(transaction_id, dict) else None
     
     print("Fetching QRIS code...")
     data = get_qris_code(api_key, tokens, transaction_id)
