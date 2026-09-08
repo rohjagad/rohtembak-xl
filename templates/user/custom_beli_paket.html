@@ -218,7 +218,7 @@ function browseFromInput() {
 {% for p in custom_buy.pins %}
 <div class="pkg-section">
   <div class="card-header" onclick="togglePin({{ loop.index }})">
-    <span><span class="pkg-pin-count">Pin {{ loop.index }}</span>{{ p.label }}<span style="font-weight:400;font-size:.78rem;color:#6b7280;margin-left:8px;">&rarr; Browse</span></span>
+    <span>{{ p.label }}</span>
     <span class="chev" id="pin-{{ loop.index }}-chev"></span>
   </div>
   <div class="body-wrap collapsed" id="pin-{{ loop.index }}-body">
