@@ -1392,22 +1392,6 @@ def admin_prices_xl_family_delete(
     return RedirectResponse(url="/prices-xl", status_code=303)
 
 
-@app.post("/prices-xl/catalog/fetch")
-def admin_prices_xl_catalog_fetch(user: User = Depends(get_current_user)):
-    """Muat katalog semua family dari API XL pakai sesi admin (admin login XL).
-
-    Refresh token XL berotasi per refresh dan hanya berlaku sekali — kalau
-    dua fetch jalan barengan, yang kedua gagal. Serialisasi dengan lock.
-    """
-    if user.role != "admin":
-        return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
-    if not _admin_xl_read():
-        return JSONResponse({"ok": False, "message": "Belum ada sesi XL dipilih. Pilih pengguna dulu."})
-    with _catalog_fetch_lock:
-        ok, msg = _admin_xl_fetch_catalog()
-    return JSONResponse({"ok": ok, "message": msg})
-
-
 @app.get("/prices-xl/family/{family_key}/browse")
 def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: User = Depends(get_current_user)):
     """Halaman Browse Package: isi katalog satu family langsung dari API XL
