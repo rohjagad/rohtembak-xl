@@ -355,7 +355,14 @@
         var lab = document.createElement("span");
         lab.textContent = u;
         d.appendChild(lab);
-        d.addEventListener("click", function () { pickUser(u); });
+        // mousedown (bukan click) supaya input tak blur duluan — kalau blur
+        // jalan, daftar saran tersembunyi sebelum klik selesai.
+        function doPick(ev) {
+          if (ev) ev.preventDefault();
+          pickUser(u);
+        }
+        d.addEventListener("mousedown", doPick);
+        d.addEventListener("click", doPick);
         userSuggest.appendChild(d);
       });
     }

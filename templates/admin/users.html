@@ -156,10 +156,17 @@ function makeCombo(inputId, suggestId) {
       var d = document.createElement('div');
       d.className = 'combo-item' + (i === 0 ? ' active' : '');
       d.textContent = u;
-      d.addEventListener('click', function () {
+      function doPick(ev) {
+        if (ev) ev.preventDefault();
         input.value = u;
         suggest.hidden = true;
-      });
+        var h = document.getElementById(inputId.replace('-user', '-user-id'));
+        if (h) h.value = USER_IDS[u.trim()] || '';
+      }
+      // mousedown (bukan click) supaya input tak blur duluan — kalau blur
+      // jalan, daftar saran tersembunyi sebelum klik selesai.
+      d.addEventListener('mousedown', doPick);
+      d.addEventListener('click', doPick);
       d.addEventListener('mousemove', function () {
         Array.prototype.forEach.call(suggest.children, function (c, j) { c.classList.toggle('active', j === i); });
       });
@@ -249,7 +256,14 @@ function filterUsers() {
       var lab = document.createElement('span');
       lab.textContent = u;
       d.appendChild(lab);
-      d.addEventListener('click', function () { pick(u); });
+      // mousedown (bukan click) supaya input tak blur duluan — kalau blur
+      // jalan, daftar saran tersembunyi sebelum klik selesai.
+      function doPick(ev) {
+        if (ev) ev.preventDefault();
+        pick(u);
+      }
+      d.addEventListener('mousedown', doPick);
+      d.addEventListener('click', doPick);
       suggest.appendChild(d);
     });
   }
