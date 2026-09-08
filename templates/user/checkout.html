@@ -95,6 +95,19 @@
 </style>
 <script>
 var PAY_URL = '{{ pay_url | safe }}';
+var API_PRICE = {{ base_price | int }};
+var SUM_FEE = {{ fee | int }};
+function fmtIDR(n) { return Number(n).toLocaleString('id-ID') + ' IDR'; }
+function setRewritePrice() {
+  var el = document.getElementById('rewrite-input');
+  var n = parseInt((el ? el.value : '').trim(), 10);
+  if (isNaN(n) || n < 0) n = API_PRICE;
+  if (el) el.value = n;
+  var p = document.getElementById('sum-price');
+  var t = document.getElementById('sum-total');
+  if (p) p.textContent = fmtIDR(n);
+  if (t) t.textContent = fmtIDR(n + SUM_FEE);
+}
 function payNow() {
   var btn = document.getElementById('pay-btn');
   var box = document.getElementById('terminal-box');
@@ -261,7 +274,7 @@ function closePendingModal() {
         <h3>Ringkasan transaksi</h3>
         <div class="saldo-row">
           <span class="k">Harga paket XL</span>
-          <span class="v">{{ base_price|rupiah }} IDR</span>
+          <span class="v" id="sum-price">{{ base_price|rupiah }} IDR</span>
         </div>
         {% if decoy_extra > 0 %}
         <div class="saldo-row">
@@ -275,7 +288,7 @@ function closePendingModal() {
         </div>
         <div class="saldo-row total">
           <span class="k">Total biaya yang dikeluarkan</span>
-          <span class="v">{{ (price + fee)|rupiah }} IDR</span>
+          <span class="v" id="sum-total">{{ (price + fee)|rupiah }} IDR</span>
         </div>
         {% if insufficient %}
         <div class="saldo-warn">Saldo panel tidak mencukupi untuk paket ini. Silahkan lakukan isi ulang saldo di menu <a href="/user/topup" style="color:#047857;font-weight:600;">Topup Saldo Panel</a>.</div>
@@ -291,7 +304,10 @@ function closePendingModal() {
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 16px;max-width:480px;margin-top:16px;">
         <div style="font-weight:600;font-size:.82rem;color:#166534;margin-bottom:4px;">Harga custom (rewrite) — opsional</div>
         <div style="font-size:.78rem;color:#166534;margin:0 0 10px;">Kosongkan untuk memakai harga API paket. Berlaku hanya untuk pembelian custom ini.</div>
-        <input type="number" id="rewrite-input" class="form-control" min="0" step="1" value="{{ rewrite_value }}" style="max-width:220px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+            <input type="number" id="rewrite-input" class="form-control" min="0" step="1" value="{{ rewrite_value }}" style="max-width:220px;">
+            <button type="button" class="btn btn-sm btn-primary" onclick="setRewritePrice()" style="white-space:nowrap;">Set harga</button>
+        </div>
     </div>
     {% endif %}
     {% if decoy_selector %}
