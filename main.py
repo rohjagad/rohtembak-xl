@@ -1348,6 +1348,25 @@ def admin_prices_xl_custom_pin_delete(
     return RedirectResponse(url="/prices-xl-custom", status_code=303)
 
 
+@app.post("/prices-xl/custom/browse-fee")
+def admin_prices_xl_custom_browse_fee(
+    fee_pulsa: str = Form(""),
+    fee_qris: str = Form(""),
+    user: User = Depends(get_current_user),
+):
+    """Set fee admin untuk browse manual (family code diketik sendiri, bukan
+    pin) — berlaku untuk pembelian custom balance & QRIS."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    fee_p, ok_p = _parse_admin_fee_input(fee_pulsa)
+    fee_q, ok_q = _parse_admin_fee_input(fee_qris)
+    if not (ok_p and ok_q):
+        return RedirectResponse(url="/prices-xl-custom?err=fee", status_code=303)
+    cur = _custom_buy_read()
+    _custom_buy_write(cur.get("pins") or [], browse_fee_pulsa=fee_p, browse_fee_qris=fee_q)
+    return RedirectResponse(url="/prices-xl-custom", status_code=303)
+
+
 @app.post("/prices-xl/family/delete")
 def admin_prices_xl_family_delete(
     family_key: str = Form(...),
@@ -4032,19 +4051,32 @@ def _custom_buy_read() -> dict:
     return {
         "label": CUSTOM_BUY_LABEL_DEFAULT,
         "pins": pins,
+        # Fee admin untuk browse manual (family code diketik sendiri, bukan pin).
+        "browse_fee_pulsa": _clamp_custom_fee(d.get("browse_fee_pulsa")),
+        "browse_fee_qris": _clamp_custom_fee(d.get("browse_fee_qris")),
         # Backward-compat: family code pin pertama tetap diekspos sebagai family_code.
         "family_code": pins[0]["family_code"] if pins else "",
     }
 
 
-def _custom_buy_write(pins: list):
+_UNSET = object()
+
+
+def _custom_buy_write(pins: list, browse_fee_pulsa=_UNSET, browse_fee_qris=_UNSET):
     path = _custom_buy_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        cur = _custom_buy_read()
+        if browse_fee_pulsa is _UNSET:
+            browse_fee_pulsa = cur.get("browse_fee_pulsa")
+        if browse_fee_qris is _UNSET:
+            browse_fee_qris = cur.get("browse_fee_qris")
         with open(path, "w", encoding="utf-8") as f:
             json.dump({
                 "label": CUSTOM_BUY_LABEL_DEFAULT,
                 "pins": _norm_custom_pins(pins, CUSTOM_BUY_LABEL_DEFAULT),
+                "browse_fee_pulsa": browse_fee_pulsa,
+                "browse_fee_qris": browse_fee_qris,
             }, f, ensure_ascii=False)
     except OSError as e:
         print(f"[custom-buy] gagal simpan: {e}")
@@ -5195,8 +5227,14 @@ def _custom_pin_fee(family_code, method) -> int | None:
 
 
 def _custom_fee(family_code, option_number, method) -> int:
-    """Fee pembelian custom: prioritas fee per pin, fallback fee family custom."""
+    """Fee pembelian custom: prioritas fee per pin; kalau family diketik manual
+    (bukan pin) pakai fee admin 'browse manual'; fallback fee family custom."""
     fee = _custom_pin_fee(family_code, method)
+    if fee is not None:
+        return fee
+    cb = _custom_buy_read()
+    key = "browse_fee_pulsa" if method == "balance" else "browse_fee_qris"
+    fee = cb.get(key)
     if fee is not None:
         return fee
     return _pkg_fee(CUSTOM_FAMILY_KEY, option_number, method)

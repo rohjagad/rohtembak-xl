@@ -177,6 +177,24 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
 </div>
 
+<div class="card" style="margin-top:16px;">
+    <h2 style="font-size:16px;margin:0 0 12px;">Biaya admin (Browse Manual)</h2>
+    <div class="page-subtitle" style="margin-bottom:12px;">Fee saldo panel untuk pembelian custom yang family code-nya diketik manual (bukan pin). Beli paket normal & pin custom tetap memakai fee masing-masing.</div>
+    <form method="POST" action="/prices-xl/custom/browse-fee" class="price-form">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <label>
+                <span class="lbl">Biaya admin Pulsa</span>
+                <input type="number" name="fee_pulsa" value="{{ custom_buy.get('browse_fee_pulsa', '') }}" min="0" step="1000" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi pulsa untuk browse manual">
+            </label>
+            <label>
+                <span class="lbl">Biaya admin QRIS</span>
+                <input type="number" name="fee_qris" value="{{ custom_buy.get('browse_fee_qris', '') }}" min="0" step="1000" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS untuk browse manual">
+            </label>
+        </div>
+        <button type="submit" class="btn btn-sm btn-outline price-btn" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
+    </form>
+</div>
+
 <a href="/prices-xl" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Atur Paket XL</a>
 
 {% endblock %}
