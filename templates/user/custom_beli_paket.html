@@ -2,6 +2,25 @@
 {% block title %}Beli Paket Custom - RohTembak (XL){% endblock %}
 {% block head %}
 <style>
+.pkg-banner {
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+.pkg-banner .pkg-title {
+  font-size: 15px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px;
+  background: rgba(0,0,0,0.03);
+  color: #111827;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+.pkg-banner-white {
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
 .pkg-section {
   border: 1px solid rgba(0,0,0,0.1);
   border-radius: 10px;
@@ -196,36 +215,39 @@ function browseFromInput() {
 {% include "user/_banner.html" %}
 {% endif %}
 
-<div class="pkg-section">
+<div class="pkg-banner pkg-banner-white">
   <div class="pkg-title" id="custom-title">{{ custom_buy.label }}</div>
-  <div class="body-wrap">
-    <div class="custom-form">
-      <label class="lbl" for="custom-fc">Family code</label>
-      <div class="custom-fc-row">
-        <input type="text" id="custom-fc" class="form-control" placeholder="Ketik family code XL" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();browseFromInput();}">
-        <button type="button" class="btn btn-sm btn-primary" onclick="browseFromInput()" style="flex-shrink:0;">Browse</button>
+
+  <div class="pkg-section">
+    <div class="body-wrap">
+      <div class="custom-form">
+        <label class="lbl" for="custom-fc">Family code</label>
+        <div class="custom-fc-row">
+          <input type="text" id="custom-fc" class="form-control" placeholder="Ketik family code XL" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();browseFromInput();}">
+          <button type="button" class="btn btn-sm btn-primary" onclick="browseFromInput()" style="flex-shrink:0;">Browse</button>
+        </div>
       </div>
+
+      <div id="custom-error" class="pkg-error" hidden></div>
+      <div id="custom-result"><div class="pkg-empty">{% if custom_buy.pins %}Ketik family code lalu tekan Browse, atau buka pin dari admin di bawah.{% else %}Ketik family code lalu tekan Browse untuk memuat paket.{% endif %}</div></div>
     </div>
+  </div>
 
-    <div id="custom-error" class="pkg-error" hidden></div>
-    <div id="custom-result"><div class="pkg-empty">{% if custom_buy.pins %}Ketik family code lalu tekan Browse, atau buka pin dari admin di bawah.{% else %}Ketik family code lalu tekan Browse untuk memuat paket.{% endif %}</div></div>
+  {% if custom_buy.pins %}
+  <div style="margin:20px 0 12px;font-size:.8rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Pin dari admin</div>
+  {% for p in custom_buy.pins %}
+  <div class="pkg-section">
+    <div class="card-header" onclick="togglePin({{ loop.index }})">
+      <span>{{ p.label }}</span>
+      <span class="chev" id="pin-{{ loop.index }}-chev"></span>
+    </div>
+    <div class="body-wrap collapsed" id="pin-{{ loop.index }}-body">
+      <div class="pkg-data" id="pin-{{ loop.index }}-result"><div class="pkg-empty">Buka section untuk memuat paket.</div></div>
+    </div>
   </div>
+  {% endfor %}
+  {% endif %}
 </div>
-
-{% if custom_buy.pins %}
-<div style="margin:20px 0 12px;font-size:.8rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Pin dari admin</div>
-{% for p in custom_buy.pins %}
-<div class="pkg-section">
-  <div class="card-header" onclick="togglePin({{ loop.index }})">
-    <span>{{ p.label }}</span>
-    <span class="chev" id="pin-{{ loop.index }}-chev"></span>
-  </div>
-  <div class="body-wrap collapsed" id="pin-{{ loop.index }}-body">
-    <div class="pkg-data" id="pin-{{ loop.index }}-result"><div class="pkg-empty">Buka section untuk memuat paket.</div></div>
-  </div>
-</div>
-{% endfor %}
-{% endif %}
 
 <a href="/user/dashboard" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali</a>
 
