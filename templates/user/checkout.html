@@ -69,6 +69,7 @@
 }
 </style>
 <script>
+var PAY_URL = '{{ pay_url | safe }}';
 function payNow() {
   var btn = document.getElementById('pay-btn');
   var box = document.getElementById('terminal-box');
@@ -83,7 +84,11 @@ function payNow() {
     el.textContent = Array(n + 1).join('.');
   }, 300);
 
-  fetch('{{ pay_url | safe }}', {method: 'POST'})
+  var decoyPick = document.querySelector('input[name=decoy]:checked');
+  var decoy = decoyPick ? decoyPick.value : '';
+  var url = PAY_URL.replace('__DECOY__', decoy);
+
+  fetch(url, {method: 'POST'})
     .then(function(r) { return r.json(); })
     .then(function(res) {
       stopPayDots();
@@ -210,6 +215,24 @@ function closePendingModal() {
         <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:.8rem;line-height:1.5;">
           <strong>Penting:</strong> Pastikan pulsa tidak lebih dari {{ decoy_threshold|rupiah if decoy_threshold else '800k' }}, agar tidak terpotong sejumlah {{ decoy_threshold|rupiah if decoy_threshold else '800k' }}.
         </div>
+        {% endif %}
+      </div>
+
+    <div {% if decoy_selector %}style="background:#f8f9fa;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;max-width:480px;"{% endif %}>
+        <div style="font-weight:600;font-size:.82rem;color:#374151;margin-bottom:8px;">Pilih Decoy (opsional)</div>
+        <div class="decoy-grid" style="display:flex;flex-wrap:wrap;gap:8px;">
+          <label class="decoy-opt" style="cursor:pointer;">
+            <input type="radio" name="decoy" value="" checked style="accent-color:#4361ee;vertical-align:middle;margin-right:5px;">
+            <span style="font-size:.88rem;">Tanpa decoy</span>
+          </label>
+          {% for d in decoy_options %}
+          <label class="decoy-opt" style="cursor:pointer;">
+            <input type="radio" name="decoy" value="{{ d.name }}" style="accent-color:#4361ee;vertical-align:middle;margin-right:5px;">
+            <span style="font-size:.88rem;">{{ d.label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <div style="margin-top:8px;font-size:.78rem;color:#6b7280;">Decoy menambah item agar nominal pembayaran berbeda dari harga paket. Biaya decoy ditambahkan di atas harga paket &amp; biaya saldo panel.</div>
         {% endif %}
       </div>
 

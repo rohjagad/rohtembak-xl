@@ -4497,6 +4497,7 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
     base_price = charge if charge is not None else (detail.get("price") or 0)
     price = int(base_price or 0)
     remaining = balance - fee
+    decoy_options = [{"name": d["name"], "label": (d.get("label") or d["name"])} for d in _list_decoys(method)]
     return {
         "detail": detail,
         "method": method,
@@ -4507,13 +4508,15 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
         "decoy_extra": 0,
         "decoy_threshold": 0,
         "decoy_name": "",
+        "decoy_selector": True,
+        "decoy_options": decoy_options,
         "fee": fee,
         "family_label": _family_label(CUSTOM_FAMILY_KEY),
         "remaining": remaining,
         "insufficient": remaining < 0,
         "decoy_pulsa_notice": False,
         "pay_url": f"/user/xl/custom/{detail.get('number')}/pay/{method}?fc={family_code}&rw="
-                   + (str(charge) if charge is not None else ""),
+                   + (str(charge) if charge is not None else "") + "&decoy=__DECOY__",
         "back_url": f"/user/xl/custom/{detail.get('number')}/detail?fc={family_code}",
     }
 
@@ -4645,7 +4648,7 @@ def user_xl_custom_checkout(request: Request, n: int, method: str, fc: str = "",
         detail["rewrite_price"] = charge
     cc = _custom_checkout_context(active_xl, user, detail, method, family_code, charge)
     if pin:
-        cc["pay_url"] = f"/user/xl/custom/{n}/pay/{method}?pin={pin}&rw=" + (str(charge) if charge is not None else "")
+        cc["pay_url"] = f"/user/xl/custom/{n}/pay/{method}?pin={pin}&rw=" + (str(charge) if charge is not None else "") + "&decoy=__DECOY__"
         cc["back_url"] = f"/user/xl/custom/{n}/detail?pin={pin}"
     ctx.update({"request": request, **cc})
     return render("user/checkout.html", context=ctx)
@@ -4653,7 +4656,7 @@ def user_xl_custom_checkout(request: Request, n: int, method: str, fc: str = "",
 
 @app.post("/user/xl/custom/{n}/pay/{method}")
 def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin: int = 0, rw: str = "",
-                       user: User = Depends(get_current_user)):
+                       decoy: str = "", user: User = Depends(get_current_user)):
     if user.role != "user":
         return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
     if method not in PAY_METHOD_LABELS:
@@ -4661,6 +4664,9 @@ def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin:
     family_code = _resolve_custom_fc(fc, pin)
     if not family_code:
         return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
+    decoy = (decoy or "").strip()
+    if decoy and decoy not in {d["name"] for d in _list_decoys(method)}:
+        return JSONResponse({"ok": False, "message": "Decoy tidak ditemukan."}, status_code=400)
     charge = _parse_custom_rw(rw)
     fee = _custom_fee(family_code, n, method)
     blocked = _panel_fee_precheck(user, CUSTOM_FAMILY_KEY, n, method, fee=fee)
@@ -4670,13 +4676,14 @@ def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin:
     ctx = get_user_context(user, db)
     db.close()
     return _pay_with_fee(user, ctx,
-                         lambda: _process_payment_custom(ctx.get("active_xl"), family_code, n, method, charge),
+                         lambda: _process_payment_custom(ctx.get("active_xl"), family_code, n, method, charge, decoy),
                          CUSTOM_FAMILY_KEY, n, method, fee=fee)
 
 
-def _process_payment_custom(active_xl, family_code, option_number, method, charge):
+def _process_payment_custom(active_xl, family_code, option_number, method, charge, decoy_name=""):
     """Settle pembelian custom. Rewrite harga (charge) AMAN — BUKAN BUG —
-    disengaja untuk group custom; tanpa decoy/fee admin."""
+    disengaja untuk group custom; tanpa decoy/fee admin. decoy_name (opsional)
+    dipilih pembeli di halaman checkout — decoy dipakai untuk qris & balance."""
     pay_error = None
     pay_success = None
     detail = None
@@ -4698,7 +4705,7 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                     if method == "balance":
                         from app.client.purchase.balance import settlement_balance as pay_balance
                         _api_delay()
-                        res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance", False)
+                        res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance", bool(decoy_name), decoy_name or "default")
                         if res and res.get("status") == "SUCCESS":
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
                         else:
@@ -4709,7 +4716,7 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                     elif method == "qris":
                         from app.client.purchase.qris import show_qris_payment
                         _api_delay()
-                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", False)
+                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", bool(decoy_name), decoy_name or "default")
                         if isinstance(qris_result, tuple) and qris_result:
                             qris_b64, _, qris_remaining = qris_result
                             pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
