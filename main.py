@@ -4505,6 +4505,7 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
         "balance": balance,
         "price": price,
         "base_price": int(base_price or 0),
+        "api_price": int(detail.get("price") or 0),
         "decoy_extra": 0,
         "decoy_threshold": 0,
         "decoy_name": "",

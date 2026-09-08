@@ -258,9 +258,15 @@ function closePendingModal() {
       <div class="saldo-box" style="max-width:480px;">
         <h3>Ringkasan transaksi</h3>
         <div class="saldo-row">
-          <span class="k">Harga paket XL</span>
+          <span class="k">{% if decoy_selector %}Harga API paket{% else %}Harga paket XL{% endif %}</span>
+          <span class="v">{{ (api_price if decoy_selector else base_price)|rupiah }} IDR</span>
+        </div>
+        {% if decoy_selector %}
+        <div class="saldo-row">
+          <span class="k">Harga custom (rewrite) — yang ditagih</span>
           <span class="v">{{ base_price|rupiah }} IDR</span>
         </div>
+        {% endif %}
         {% if decoy_extra > 0 %}
         <div class="saldo-row">
           <span class="k">Biaya decoy{% if decoy_name %} ({{ decoy_name }}){% endif %}</span>
