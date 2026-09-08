@@ -68,6 +68,8 @@
 .combo-empty { padding: 10px 12px; color: #9ca3af; font-size: 13px; }
 </style>
 <script>
+var USERS = [{% for u in users %}{{ u.username | tojson }}{{ "," if not loop.last }}{% endfor %}];
+var USER_IDS = { {% for u in users %}{{ u.username | tojson }}: {{ u.id }},{% endfor %} };
 function openTopup() { document.getElementById('topupModal').classList.add('show'); }
 function closeTopup() { document.getElementById('topupModal').classList.remove('show'); }
 function openDelete() { document.getElementById('deleteModal').classList.add('show'); }
@@ -77,13 +79,10 @@ function closeDecrease() { document.getElementById('decreaseModal').classList.re
 function openSet() { document.getElementById('setModal').classList.add('show'); }
 function closeSet() { document.getElementById('setModal').classList.remove('show'); }
 function pickUser(inputId, hiddenId) {
-  var username = document.getElementById(inputId).value;
-  var opts = document.querySelectorAll('#users-list option');
-  for (var i = 0; i < opts.length; i++) {
-    if (opts[i].getAttribute('value') === username) {
-      document.getElementById(hiddenId).value = opts[i].getAttribute('data-id');
-      return true;
-    }
+  var username = document.getElementById(inputId).value.trim();
+  if (USER_IDS[username]) {
+    document.getElementById(hiddenId).value = USER_IDS[username];
+    return true;
   }
   alert('Pengguna tidak ditemukan.');
   return false;
@@ -130,7 +129,92 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
   });
+  ['topup', 'decrease', 'set', 'del'].forEach(function (name) {
+    bindUserCombo(name + '-user', name + '-user-suggest', name + '-user-id');
+  });
 });
+function makeCombo(inputId, suggestId) {
+  var input = document.getElementById(inputId);
+  var suggest = document.getElementById(suggestId);
+  if (!input || !suggest) return null;
+  function hits(q) {
+    if (!q) return [];
+    var all = USERS.filter(function (u) { return u.toLowerCase().indexOf(q) > -1; });
+    return all.filter(function (u) { return u.toLowerCase().indexOf(q) === 0; })
+              .concat(all.filter(function (u) { return u.toLowerCase().indexOf(q) > 0; }));
+  }
+  function topName(q) {
+    return hits(q)[0] || "";
+  }
+  function render(list) {
+    suggest.innerHTML = '';
+    if (!list.length) {
+      suggest.innerHTML = '<div class="combo-empty">Pengguna tidak ditemukan</div>';
+      return;
+    }
+    list.forEach(function (u, i) {
+      var d = document.createElement('div');
+      d.className = 'combo-item' + (i === 0 ? ' active' : '');
+      d.textContent = u;
+      d.addEventListener('click', function () {
+        input.value = u;
+        suggest.hidden = true;
+      });
+      d.addEventListener('mousemove', function () {
+        Array.prototype.forEach.call(suggest.children, function (c, j) { c.classList.toggle('active', j === i); });
+      });
+      suggest.appendChild(d);
+    });
+  }
+  input.addEventListener('input', function () {
+    var l = hits(input.value.trim().toLowerCase());
+    if (l.length) { render(l); suggest.hidden = false; } else suggest.hidden = true;
+  });
+  input.addEventListener('focus', function () {
+    var l = hits(input.value.trim().toLowerCase());
+    if (l.length) { render(l); suggest.hidden = false; }
+  });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      var t = topName(input.value.trim().toLowerCase());
+      if (t) input.value = t;
+      suggest.hidden = true;
+      e.preventDefault();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      var items = suggest.querySelectorAll('.combo-item');
+      if (!items.length) return;
+      var cur = -1;
+      Array.prototype.forEach.call(items, function (c, i) { if (c.classList.contains('active')) cur = i; });
+      var next = e.key === 'ArrowDown' ? (cur + 1) % items.length : (cur - 1 + items.length) % items.length;
+      Array.prototype.forEach.call(items, function (c, i) { c.classList.toggle('active', i === next); });
+      input.value = items[next].textContent;
+    } else if (e.key === 'Escape') {
+      suggest.hidden = true;
+    }
+  });
+  input.addEventListener('blur', function () {
+    setTimeout(function () {
+      var t = topName(input.value.trim().toLowerCase());
+      if (t) input.value = t;
+      suggest.hidden = true;
+      var h = document.getElementById(inputId.replace('-user', '-user-id'));
+      if (h) h.value = USER_IDS[input.value.trim()] || '';
+    }, 120);
+  });
+  document.addEventListener('click', function (e) {
+    if (input.closest('.combo-wrap') && !input.closest('.combo-wrap').contains(e.target)) suggest.hidden = true;
+  });
+}
+function bindUserCombo(inputId, suggestId, hiddenId) {
+  var input = document.getElementById(inputId);
+  var hidden = document.getElementById(hiddenId);
+  if (!input || !hidden) return;
+  makeCombo(inputId, suggestId);
+  input.addEventListener('change', function () {
+    hidden.value = USER_IDS[input.value.trim()] || '';
+  });
+}
 function filterUsers() {
   var q = document.getElementById('user-search').value.toLowerCase();
   var rows = document.querySelectorAll('#users-table tbody tr');
@@ -146,7 +230,6 @@ function filterUsers() {
   var search = document.getElementById('user-search');
   var suggest = document.getElementById('user-suggest');
   if (!search || !suggest) return;
-  var USERS = [{% for u in users %}{{ u.username | tojson }}{{ "," if not loop.last }}{% endfor %}];
   function suggestList() {
     var q = search.value.trim().toLowerCase();
     if (!q) return [];
@@ -279,7 +362,11 @@ document.addEventListener('click', function(e) {
             <input type="hidden" name="user_id" id="del-user-id">
             <div class="form-group">
                 <label>Pengguna</label>
-                <input list="users-list" id="del-user" placeholder="Cari / ketik username" required autocomplete="off">
+                <div class="combo-wrap">
+                    <input type="text" id="del-user" class="form-control" placeholder="Cari / ketik username" required autocomplete="off">
+                    <span class="combo-caret"></span>
+                    <div id="del-user-suggest" class="combo-suggest" hidden></div>
+                </div>
             </div>
             <p style="font-size:13px;color:#ef4444;margin:0 0 12px;">User, saldo, nomor XL, dan riwayat topup akan dihapus permanen.</p>
             <div class="modal-actions">
@@ -297,7 +384,11 @@ document.addEventListener('click', function(e) {
             <input type="hidden" name="user_id" id="decrease-user-id">
             <div class="form-group">
                 <label>Pengguna</label>
-                <input list="users-list" id="decrease-user" placeholder="Cari / ketik username" required autocomplete="off">
+                <div class="combo-wrap">
+                    <input type="text" id="decrease-user" class="form-control" placeholder="Cari / ketik username" required autocomplete="off">
+                    <span class="combo-caret"></span>
+                    <div id="decrease-user-suggest" class="combo-suggest" hidden></div>
+                </div>
             </div>
             <div class="form-group">
                 <label>Jumlah (IDR)</label>
@@ -322,7 +413,11 @@ document.addEventListener('click', function(e) {
             <input type="hidden" name="user_id" id="set-user-id">
             <div class="form-group">
                 <label>Pengguna</label>
-                <input list="users-list" id="set-user" placeholder="Cari / ketik username" required autocomplete="off">
+                <div class="combo-wrap">
+                    <input type="text" id="set-user" class="form-control" placeholder="Cari / ketik username" required autocomplete="off">
+                    <span class="combo-caret"></span>
+                    <div id="set-user-suggest" class="combo-suggest" hidden></div>
+                </div>
             </div>
             <div class="form-group">
                 <label>Saldo baru (IDR)</label>
@@ -347,10 +442,11 @@ document.addEventListener('click', function(e) {
             <input type="hidden" name="user_id" id="topup-user-id">
             <div class="form-group">
                 <label>Pengguna</label>
-                <input list="users-list" id="topup-user" placeholder="Cari / ketik username" required autocomplete="off">
-                <datalist id="users-list">
-                    {% for u in users %}<option value="{{ u.username }}" data-id="{{ u.id }}"></option>{% endfor %}
-                </datalist>
+                <div class="combo-wrap">
+                    <input type="text" id="topup-user" class="form-control" placeholder="Cari / ketik username" required autocomplete="off">
+                    <span class="combo-caret"></span>
+                    <div id="topup-user-suggest" class="combo-suggest" hidden></div>
+                </div>
             </div>
             <div class="form-group">
                 <label>Jumlah (IDR)</label>
