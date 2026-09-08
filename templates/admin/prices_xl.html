@@ -32,6 +32,12 @@
   border-left: 5px solid transparent; border-right: 5px solid transparent;
   border-top: 6px solid #6b7280; pointer-events: none;
 }
+.select-wrap { position: relative; }
+.select-wrap select {
+  width: 100%; box-sizing: border-box; padding-right: 32px;
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  background: transparent; cursor: pointer;
+}
 .combo-suggest {
   position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
   margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
@@ -124,6 +130,7 @@
                 <span class="price-hint" style="font-weight:600;">Nomor (label)</span>
                 <div class="select-wrap">
                     <select name="account_id" id="acct-select" class="form-control"><option value="">-- pilih nomor --</option>{% for g in admin_acct_groups %}{% for acc in g.accounts %}<option value="{{ acc.id }}" {{ 'selected' if admin_active_account_id == acc.id }} data-user="{{ g.username }}">{{ acc.label }}{% if acc.phone_number %} ({{ acc.phone_number }}){% endif %}</option>{% endfor %}{% endfor %}</select>
+                    <span class="combo-caret"></span>
                 </div>
             </label>
             <button type="submit" class="btn btn-sm btn-primary" style="padding:10px 22px;">Simpan</button>
