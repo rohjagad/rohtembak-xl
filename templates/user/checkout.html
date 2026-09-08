@@ -67,6 +67,31 @@
 .qr-window .qr-hint {
   margin-top: 14px; font-size: .72rem; color: #9ca3af;
 }
+
+.select-wrap { position: relative; }
+.select-trigger {
+  width: 100%; box-sizing: border-box; padding: 10px 34px 10px 14px;
+  border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+  background: #fff; cursor: pointer; transition: border-color .2s, box-shadow .2s;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.select-trigger:hover { border-color: #c7d2fe; }
+.select-trigger:focus { outline: none; border-color: #4361ee; box-shadow: 0 0 0 3px rgba(67,97,238,.1); }
+.select-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-caret {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 6px solid #6b7280; pointer-events: none;
+}
+.combo-suggest {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
+  margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15,23,42,.12); max-height: 220px; overflow-y: auto;
+}
+.combo-item { padding: 9px 12px; cursor: pointer; font-size: 13.5px; }
+.combo-item + .combo-item { border-top: 1px solid #f1f5f9; }
+.combo-item.active { background: #eef2ff; }
+.combo-empty { padding: 10px 12px; color: #9ca3af; font-size: 13px; }
 </style>
 <script>
 var PAY_URL = '{{ pay_url | safe }}';
@@ -84,8 +109,8 @@ function payNow() {
     el.textContent = Array(n + 1).join('.');
   }, 300);
 
-  var decoyPick = document.querySelector('input[name=decoy]:checked');
-  var decoy = decoyPick ? decoyPick.value : '';
+  var decoyVal = document.getElementById('decoy-val');
+  var decoy = decoyVal ? decoyVal.value : '';
   var url = PAY_URL.replace('__DECOY__', decoy);
 
   fetch(url, {method: 'POST'})
@@ -166,6 +191,48 @@ function showPendingModal() {
 function closePendingModal() {
   document.getElementById('pendingModal').classList.remove('show');
 }
+(function () {
+  var trigger = document.getElementById('decoy-trigger');
+  var suggest = document.getElementById('decoy-suggest');
+  var val = document.getElementById('decoy-val');
+  var label = document.getElementById('decoy-trigger-label');
+  if (!trigger || !suggest || !val || !label) return;
+  var DECOYS = [{ name: '', label: 'Tanpa decoy' }];
+  {% for d in decoy_options %}
+  DECOYS.push({ name: {{ d.name | tojson }}, label: {{ d.label | tojson }} });
+  {% endfor %}
+  function renderPanel() {
+    suggest.innerHTML = '';
+    DECOYS.forEach(function (d) {
+      var el = document.createElement('div');
+      el.className = 'combo-item' + (d.name === val.value ? ' active' : '');
+      el.textContent = d.label;
+      function pick(ev) {
+        if (ev) ev.preventDefault();
+        val.value = d.name;
+        label.textContent = d.label;
+        suggest.hidden = true;
+      }
+      el.addEventListener('mousedown', pick);
+      el.addEventListener('click', pick);
+      suggest.appendChild(el);
+    });
+  }
+  trigger.addEventListener('click', function () {
+    if (suggest.hidden) { renderPanel(); suggest.hidden = false; }
+    else suggest.hidden = true;
+  });
+  trigger.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { suggest.hidden = true; return; }
+    if (e.key === 'Enter' || e.key === 'ArrowDown') {
+      if (suggest.hidden) { renderPanel(); suggest.hidden = false; }
+      e.preventDefault();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (trigger.closest('.select-wrap') && !trigger.closest('.select-wrap').contains(e.target)) suggest.hidden = true;
+  });
+})();
 </script>
 {% endblock %}
 {% block content %}
@@ -221,17 +288,13 @@ function closePendingModal() {
     {% if decoy_selector %}
     <div style="background:#f8f9fa;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;max-width:480px;margin-top:16px;">
         <div style="font-weight:600;font-size:.82rem;color:#374151;margin-bottom:8px;">Pilih Decoy (opsional)</div>
-        <div class="decoy-grid" style="display:flex;flex-wrap:wrap;gap:8px;">
-          <label class="decoy-opt" style="cursor:pointer;">
-            <input type="radio" name="decoy" value="" checked style="accent-color:#4361ee;vertical-align:middle;margin-right:5px;">
-            <span style="font-size:.88rem;">Tanpa decoy</span>
-          </label>
-          {% for d in decoy_options %}
-          <label class="decoy-opt" style="cursor:pointer;">
-            <input type="radio" name="decoy" value="{{ d.name }}" style="accent-color:#4361ee;vertical-align:middle;margin-right:5px;">
-            <span style="font-size:.88rem;">{{ d.label }}</span>
-          </label>
-          {% endfor %}
+        <div class="select-wrap">
+            <div class="select-trigger" id="decoy-trigger" tabindex="0" role="listbox" aria-label="Pilih Decoy">
+                <span class="select-trigger-label" id="decoy-trigger-label">Tanpa decoy</span>
+                <span class="combo-caret"></span>
+            </div>
+            <div id="decoy-suggest" class="combo-suggest" hidden></div>
+            <input type="hidden" id="decoy-val" value="">
         </div>
         <div style="margin-top:8px;font-size:.78rem;color:#6b7280;">Decoy menambah item agar nominal pembayaran berbeda dari harga paket. Biaya decoy ditambahkan di atas harga paket &amp; biaya saldo panel.</div>
     </div>
