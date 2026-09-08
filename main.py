@@ -1605,11 +1605,20 @@ def admin_prices_xl_login_page(request: Request, user: User = Depends(get_curren
 
 @app.post("/prices-xl/login-xl/select")
 def admin_prices_xl_login_select(
-    account_id: int = Form(...),
+    account_id: str = Form(""),
     user: User = Depends(get_current_user),
 ):
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
+    account_id = str(account_id or "").strip()
+    if not account_id:
+        # Kosong (pilih pengguna / pilih nomor) → set sesi admin XL jadi kosong.
+        _admin_xl_clear()
+        return RedirectResponse(url="/prices-xl", status_code=303)
+    try:
+        account_id = int(account_id)
+    except ValueError:
+        return RedirectResponse(url="/prices-xl", status_code=303)
     db = next(get_db())
     try:
         acct = db.query(XLAccount).filter(XLAccount.id == account_id).first()
