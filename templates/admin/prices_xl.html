@@ -38,6 +38,11 @@
   appearance: none; -webkit-appearance: none; -moz-appearance: none;
   background: transparent; cursor: pointer;
 }
+/* Dropdown yang mengembang (native popup): style option-nya */
+.select-wrap select option {
+  background: #fff; color: #1f2937; font-size: 13.5px; padding: 8px 10px;
+}
+.select-wrap select option[value=""] { color: #9ca3af; }
 .combo-suggest {
   position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
   margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
