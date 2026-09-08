@@ -4452,8 +4452,9 @@ def _custom_cfg() -> dict:
 
 
 def _parse_custom_rw(rw):
-    """Parse rewrite harga dari query. Kosong/nol/negatif/bukan angka -> None
-    (pakai harga API). Berlaku HANYA untuk group custom."""
+    """Parse rewrite harga dari query. Kosong/negatif/bukan angka -> None
+    (pakai harga API). NOL DIPERBOLEHKAN — sebagian paket memang bisa
+    didapatkan gratis dengan rewrite 0. Berlaku HANYA untuk group custom."""
     rw = str(rw or "").strip()
     if not rw:
         return None
@@ -4461,7 +4462,7 @@ def _parse_custom_rw(rw):
         v = int(rw)
     except ValueError:
         return None
-    return v if v > 0 else None
+    return v if v >= 0 else None
 
 
 def _resolve_custom_fc(fc: str, pin: int = 0) -> str | None:
