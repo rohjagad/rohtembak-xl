@@ -4344,7 +4344,7 @@ def _stream_beli_paket_events(active_xl, want, disconnected=None):
             is_ent, mig = _family_api_params(fam_code)
             cfg = _active_families().get(f) or {}
             if not cfg.get("option_codes"):
-                # Group tanpa paket ter-pin (admin belum tambah apa pun) —
+                # Group tanpa opsi yang ditampilkan (admin belum tambah apa pun) —
                 # tampilkan kosong, jangan buang semua opsi katalog.
                 _api_delay()
                 yield _sse_event("family", {"key": entry_key, "items": [], "ok": True})
@@ -4736,9 +4736,9 @@ def _family_fetch_spec(fam_key):
     """(family_code, builder, entry_key) untuk stream beli-paket — dari registry.
 
     entry_key = family_key (container & cache di template kunci berdasar ini).
-    Semua family pakai builder generik registry; option_codes (bila di-set)
-    memfilter opsi katalog yang ditampilkan. Group yang BELUM punya paket
-    ter-pin menghasilkan daftar kosong — bukan semua opsi katalog.
+    Semua family pakai builder generik registry; option_codes (bila ada)
+    membatasi opsi katalog yang ditampilkan. Group yang BELUM punya opsi
+    untuk ditampilkan menghasilkan daftar kosong — bukan semua opsi katalog.
     """
     cfg = _active_families().get(fam_key)
     if not cfg:
