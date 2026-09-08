@@ -50,6 +50,22 @@
 .modal h3 { margin: 0 0 14px; font-size: 16px; }
 .modal .modal-actions { display: flex; gap: 8px; margin-top: 4px; }
 .modal .modal-actions .btn { flex: 1; }
+.combo-wrap { position: relative; }
+.combo-wrap .form-control { width: 100% !important; box-sizing: border-box; padding-right: 32px; }
+.combo-caret {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 6px solid #6b7280; pointer-events: none;
+}
+.combo-suggest {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
+  margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .12); max-height: 220px; overflow-y: auto;
+}
+.combo-item { padding: 9px 12px; cursor: pointer; font-size: 13.5px; }
+.combo-item + .combo-item { border-top: 1px solid #f1f5f9; }
+.combo-item.active { background: #eef2ff; }
+.combo-empty { padding: 10px 12px; color: #9ca3af; font-size: 13px; }
 </style>
 <script>
 function openTopup() { document.getElementById('topupModal').classList.add('show'); }
@@ -126,6 +142,66 @@ function filterUsers() {
   });
   document.getElementById('users-empty').style.display = visible ? 'none' : 'block';
 }
+(function () {
+  var search = document.getElementById('user-search');
+  var suggest = document.getElementById('user-suggest');
+  if (!search || !suggest) return;
+  var USERS = [{% for u in users %}{{ u.username | tojson }}{{ "," if not loop.last }}{% endfor %}];
+  function suggestList() {
+    var q = search.value.trim().toLowerCase();
+    if (!q) return [];
+    var hits = USERS.filter(function (u) { return u.toLowerCase().indexOf(q) > -1; });
+    return hits.filter(function (u) { return u.toLowerCase().indexOf(q) === 0; })
+               .concat(hits.filter(function (u) { return u.toLowerCase().indexOf(q) > 0; }));
+  }
+  function renderHits(list) {
+    suggest.innerHTML = '';
+    if (!list.length) {
+      suggest.innerHTML = '<div class="combo-empty">Pengguna tidak ditemukan</div>';
+      return;
+    }
+    list.forEach(function (u) {
+      var d = document.createElement('div');
+      d.className = 'combo-item';
+      var lab = document.createElement('span');
+      lab.textContent = u;
+      d.appendChild(lab);
+      d.addEventListener('click', function () { pick(u); });
+      suggest.appendChild(d);
+    });
+  }
+  function pick(u) {
+    search.value = u;
+    suggest.hidden = true;
+    filterUsers();
+  }
+  search.addEventListener('input', function () {
+    filterUsers();
+    var l = suggestList();
+    if (l.length) { renderHits(l); suggest.hidden = false; }
+    else suggest.hidden = true;
+  });
+  search.addEventListener('focus', function () {
+    var l = suggestList();
+    if (l.length) { renderHits(l); suggest.hidden = false; }
+  });
+  search.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      var q = search.value.trim().toLowerCase();
+      var t = USERS.filter(function (u) { return u.toLowerCase().indexOf(q) > -1; })[0];
+      if (t) pick(t);
+      e.preventDefault();
+    } else if (e.key === 'Escape') {
+      suggest.hidden = true;
+    }
+  });
+  search.addEventListener('blur', function () {
+    setTimeout(function () { suggest.hidden = true; }, 120);
+  });
+  document.addEventListener('click', function (e) {
+    if (search.closest('.combo-wrap') && !search.closest('.combo-wrap').contains(e.target)) suggest.hidden = true;
+  });
+})();
 document.addEventListener('click', function(e) {
   ['topupModal', 'deleteModal', 'decreaseModal', 'setModal'].forEach(function(id) {
     var m = document.getElementById(id);
@@ -145,7 +221,11 @@ document.addEventListener('click', function(e) {
 </div>
 
 <div class="card" style="padding:14px;">
-    <input type="search" id="user-search" class="form-control search-field" placeholder="Cari pengguna (username / email)..." oninput="filterUsers()" autocomplete="off">
+    <div class="combo-wrap">
+        <input type="search" id="user-search" class="form-control search-field" placeholder="Cari pengguna (username / email)..." oninput="filterUsers()" autocomplete="off">
+        <span class="combo-caret"></span>
+        <div id="user-suggest" class="combo-suggest" hidden></div>
+    </div>
 </div>
 
 <div class="card">
