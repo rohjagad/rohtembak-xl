@@ -1282,6 +1282,26 @@ def admin_prices_xl_custom_pin_add(
     return RedirectResponse(url="/prices-xl-custom", status_code=303)
 
 
+@app.post("/prices-xl/custom/pin/rename")
+def admin_prices_xl_custom_pin_rename(
+    pin_index: int = Form(...),
+    label: str = Form(""),
+    user: User = Depends(get_current_user),
+):
+    """Ubah label satu family code terpin."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    lbl = str(label or "").strip()[:100]
+    if not lbl:
+        return RedirectResponse(url="/prices-xl-custom?err=label", status_code=303)
+    cur = _custom_buy_read()
+    pins = cur.get("pins") or []
+    if 1 <= pin_index <= len(pins):
+        pins[pin_index - 1]["label"] = lbl
+        _custom_buy_write(pins)
+    return RedirectResponse(url="/prices-xl-custom", status_code=303)
+
+
 @app.post("/prices-xl/custom/pin/delete")
 def admin_prices_xl_custom_pin_delete(
     pin_index: int = Form(...),

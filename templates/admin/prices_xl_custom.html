@@ -7,6 +7,13 @@
 .price-form .lbl { font-size: 12px; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: .5px; }
 .price-input { width: 220px; }
 .price-form .price-btn { flex-shrink: 0; width: auto; }
+.rename-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.rename-form .form-control { width: 200px; }
+.rename-form .btn-primary { width: auto; }
+@media (max-width: 700px) {
+  .rename-form { display: flex; justify-content: space-between; }
+  .rename-form .form-control { width: 100%; }
+}
 @media (max-width: 700px) {
   .price-input { width: 100%; }
   .price-form .price-btn { width: auto; }
@@ -63,6 +70,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
 {% if request.query_params.get('err') == 'pin' %}
 <div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;">Family code terpin tidak valid — gunakan UUID family XL (8-64 karakter, huruf/angka/tanda hubung).</div>
+{% elif request.query_params.get('err') == 'label' %}
+<div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;">Label tidak boleh kosong.</div>
 {% endif %}
 
 <div class="card">
@@ -79,7 +88,13 @@ document.addEventListener('DOMContentLoaded', function () {
         <tbody>
             {% for p in custom_buy.pins %}
             <tr>
-                <td data-label="Label"><strong>{{ p.label }}</strong></td>
+                <td data-label="Label">
+                    <form method="POST" action="/prices-xl/custom/pin/rename" class="rename-form">
+                        <input type="hidden" name="pin_index" value="{{ loop.index }}">
+                        <input type="text" name="label" class="form-control" maxlength="100" value="{{ p.label }}" aria-label="Ganti label pin">
+                        <button type="submit" class="btn btn-sm btn-primary">Simpan</button>
+                    </form>
+                </td>
                 <td data-label="Family Code" style="font-family:monospace;font-size:13px;">{{ p.family_code }}</td>
                 <td data-label="" style="text-align:right;">
                     <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
