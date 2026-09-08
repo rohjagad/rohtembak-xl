@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         <form method="POST" action="/prices-xl/custom/pin/rename" class="rename-form">
                             <input type="hidden" name="pin_index" value="{{ loop.index }}">
                             <input type="text" name="label" class="form-control" maxlength="100" value="{{ p.label }}" aria-label="Ganti label pin">
-                            <button type="submit" class="btn btn-sm btn-primary">Simpan</button>
+                            <button type="submit" class="btn btn-sm btn-outline" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
                         </form>
                         <div class="pin-edit-sep"></div>
                         <form action="/prices-xl/custom/pin/delete" method="POST">
