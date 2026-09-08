@@ -4511,13 +4511,14 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
         "decoy_name": "",
         "decoy_selector": True,
         "decoy_options": decoy_options,
+        "rewrite_selector": True,
+        "rewrite_value": price,
         "fee": fee,
         "family_label": _family_label(CUSTOM_FAMILY_KEY),
         "remaining": remaining,
         "insufficient": remaining < 0,
         "decoy_pulsa_notice": False,
-        "pay_url": f"/user/xl/custom/{detail.get('number')}/pay/{method}?fc={family_code}&rw="
-                   + (str(charge) if charge is not None else "") + "&decoy=__DECOY__",
+        "pay_url": f"/user/xl/custom/{detail.get('number')}/pay/{method}?fc={family_code}&rw=__RW__&decoy=__DECOY__",
         "back_url": f"/user/xl/custom/{detail.get('number')}/detail?fc={family_code}",
     }
 
@@ -4649,7 +4650,7 @@ def user_xl_custom_checkout(request: Request, n: int, method: str, fc: str = "",
         detail["rewrite_price"] = charge
     cc = _custom_checkout_context(active_xl, user, detail, method, family_code, charge)
     if pin:
-        cc["pay_url"] = f"/user/xl/custom/{n}/pay/{method}?pin={pin}&rw=" + (str(charge) if charge is not None else "") + "&decoy=__DECOY__"
+        cc["pay_url"] = f"/user/xl/custom/{n}/pay/{method}?pin={pin}&rw=__RW__&decoy=__DECOY__"
         cc["back_url"] = f"/user/xl/custom/{n}/detail?pin={pin}"
     ctx.update({"request": request, **cc})
     return render("user/checkout.html", context=ctx)

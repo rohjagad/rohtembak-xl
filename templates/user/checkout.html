@@ -111,7 +111,9 @@ function payNow() {
 
   var decoyVal = document.getElementById('decoy-val');
   var decoy = decoyVal ? decoyVal.value : '';
-  var url = PAY_URL.replace('__DECOY__', decoy);
+  var rwEl = document.getElementById('rewrite-input');
+  var rw = rwEl ? rwEl.value.trim() : '';
+  var url = PAY_URL.replace('__DECOY__', decoy).replace('__RW__', rw);
 
   fetch(url, {method: 'POST'})
     .then(function(r) { return r.json(); })
@@ -258,15 +260,9 @@ function closePendingModal() {
       <div class="saldo-box" style="max-width:480px;">
         <h3>Ringkasan transaksi</h3>
         <div class="saldo-row">
-          <span class="k">{% if decoy_selector %}Harga API paket{% else %}Harga paket XL{% endif %}</span>
-          <span class="v">{{ (api_price if decoy_selector else base_price)|rupiah }} IDR</span>
-        </div>
-        {% if decoy_selector %}
-        <div class="saldo-row">
-          <span class="k">Harga custom (rewrite) — yang ditagih</span>
+          <span class="k">Harga paket XL</span>
           <span class="v">{{ base_price|rupiah }} IDR</span>
         </div>
-        {% endif %}
         {% if decoy_extra > 0 %}
         <div class="saldo-row">
           <span class="k">Biaya decoy{% if decoy_name %} ({{ decoy_name }}){% endif %}</span>
@@ -291,6 +287,13 @@ function closePendingModal() {
         {% endif %}
       </div>
 
+    {% if rewrite_selector %}
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 16px;max-width:480px;margin-top:16px;">
+        <div style="font-weight:600;font-size:.82rem;color:#166534;margin-bottom:4px;">Harga custom (rewrite) — opsional</div>
+        <div style="font-size:.78rem;color:#166534;margin:0 0 10px;">Kosongkan untuk memakai harga API paket. Berlaku hanya untuk pembelian custom ini.</div>
+        <input type="number" id="rewrite-input" class="form-control" min="0" step="1" value="{{ rewrite_value }}" style="max-width:220px;">
+    </div>
+    {% endif %}
     {% if decoy_selector %}
     <div style="background:#f8f9fa;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;max-width:480px;margin-top:16px;">
         <div style="font-weight:600;font-size:.82rem;color:#374151;margin-bottom:8px;">Pilih Decoy (opsional)</div>
