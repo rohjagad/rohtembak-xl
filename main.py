@@ -5005,8 +5005,26 @@ def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_n
     charge = detail.get("rewrite_price")
     if charge is None:
         charge = detail["price"]
+
+    # XL kadang menolak jumlah yang kita kirim dan memberi tahu jumlah valid
+    # sendiri (diskon/promo/naik harga — sesukanya XL). Coba sekali lagi dengan
+    # jumlah valid itu, tanpa mengubah item/method.
+    def _retry_corrected(res, retry_items, retry_for, retry_token_idx):
+        if not (isinstance(res, dict) and res.get("status") != "SUCCESS"):
+            return res
+        msg = str(res.get("message", ""))
+        if "Bizz-err.Amount.Total" not in msg and "valid amount is" not in msg:
+            return res
+        valid_amount = _parse_bizz_total(msg)
+        if valid_amount is None:
+            return res
+        print(f"Adjusted total amount to: {valid_amount}")
+        return pay_fn(API_KEY, tokens, retry_items, retry_for, False,
+                      overwrite_amount=valid_amount, token_confirmation_idx=retry_token_idx)
+
     if not use_decoy:
-        return pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge)
+        res = pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge)
+        return _retry_corrected(res, items, detail["payment_for"], 0)
 
     items_with_decoy, decoy_price = _append_decoy_item(items, tokens, method, decoy_name)
     if decoy_price is None:
@@ -5014,17 +5032,11 @@ def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_n
     overwrite_amount = int(charge or 0) + decoy_price
 
     if method == "qris":
-        return pay_fn(API_KEY, tokens, items_with_decoy, "SHARE_PACKAGE", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
+        res = pay_fn(API_KEY, tokens, items_with_decoy, "SHARE_PACKAGE", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
+        return _retry_corrected(res, items_with_decoy, "SHARE_PACKAGE", 1)
 
     res = pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
-    if isinstance(res, dict) and res.get("status") != "SUCCESS":
-        msg = str(res.get("message", ""))
-        if "Bizz-err.Amount.Total" in msg or "valid amount is" in msg:
-            valid_amount = _parse_bizz_total(msg)
-            if valid_amount is not None:
-                print(f"Adjusted total amount to: {valid_amount}")
-                res = pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=valid_amount, token_confirmation_idx=-1)
-    return res
+    return _retry_corrected(res, items_with_decoy, "🤫", 1)
 
 
 def _process_payment(active_xl, fam_key, option_number, method):
