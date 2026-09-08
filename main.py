@@ -1035,12 +1035,20 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
                 })
     finally:
         db2.close()
+    admin_active_username = None
+    if admin_sess and admin_sess.get("account_id"):
+        for g in admin_acct_groups:
+            for a in g["accounts"]:
+                if a["id"] == admin_sess.get("account_id"):
+                    admin_active_username = g["username"]
+                    break
     return render("admin/prices_xl.html", context={
         "request": request,
         "user": user,
         "rows": rows,
         "admin_acct_groups": admin_acct_groups,
         "admin_active_account_id": (admin_sess or {}).get("account_id"),
+        "admin_active_username": admin_active_username,
         "family_codes": {k: v["family_code"] for k, v in reg.items()},
         "family_prefixes": {k: v["url_prefix"] for k, v in reg.items()},
         "family_options": {k: ",".join(str(x) for x in v["option_codes"]) for k, v in reg.items()},

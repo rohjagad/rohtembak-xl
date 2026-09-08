@@ -111,19 +111,19 @@
         <div class="xl-sess-grid" style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
             <label style="display:flex;flex-direction:column;gap:6px;">
                 <span class="price-hint" style="font-weight:600;">Pengguna</span>
-                <div class="select-wrap">
-                    <select name="" id="user-select" class="form-control"><option value="">-- pilih pengguna --</option>{% for g in admin_acct_groups %}<option value="{{ g.username }}" data-user="{{ g.username }}">{{ g.username }}</option>{% endfor %}</select>
+                <div class="combo-wrap">
+                    <input type="text" id="user-combo" class="form-control" autocomplete="off"
+                           placeholder="Ketik nama pengguna…"
+                           value="{{ admin_active_username or '' }}">
+                    <span class="combo-caret"></span>
+                    <div id="user-suggest" class="combo-suggest" hidden></div>
+                    <input type="hidden" id="user-combo-val" value="{{ admin_active_username or '' }}">
                 </div>
             </label>
             <label style="display:flex;flex-direction:column;gap:6px;">
                 <span class="price-hint" style="font-weight:600;">Nomor (label)</span>
-                <div class="combo-wrap">
-                    <input type="text" id="acct-combo" class="form-control" autocomplete="off"
-                           placeholder="Ketik label / nomor…"
-                           value="{% if admin_xl_label %}{{ admin_xl_label }}{% if admin_xl_phone %} ({{ admin_xl_phone }}){% endif %}{% elif admin_xl_phone %}{{ admin_xl_phone }}{% endif %}">
-                    <span class="combo-caret"></span>
-                    <div id="acct-suggest" class="combo-suggest" hidden></div>
-                    <input type="hidden" name="account_id" id="acct-id" value="{{ admin_active_account_id or '' }}">
+                <div class="select-wrap">
+                    <select name="account_id" id="acct-select" class="form-control"><option value="">-- pilih nomor --</option>{% for g in admin_acct_groups %}{% for acc in g.accounts %}<option value="{{ acc.id }}" {{ 'selected' if admin_active_account_id == acc.id }} data-user="{{ g.username }}">{{ acc.label }}{% if acc.phone_number %} ({{ acc.phone_number }}){% endif %}</option>{% endfor %}{% endfor %}</select>
                 </div>
             </label>
             <button type="submit" class="btn btn-sm btn-primary" style="padding:10px 22px;">Simpan</button>
@@ -320,153 +320,94 @@
       }
     });
   });
-// Pengguna -> Nomor (label): combobox bisa diketik, muncul saran terdekat
-  var userSel = document.getElementById("user-select");
-  var combo = document.getElementById("acct-combo");
-  var comboId = document.getElementById("acct-id");
-  var suggest = document.getElementById("acct-suggest");
-  var ACCTS = [];
-  {% for g in admin_acct_groups %}{% for a in g.accounts %}
-  ACCTS.push({ user: {{ g.username | tojson }}, id: {{ a.id }}, label: ({{ (a.label or "") | tojson }} || "Nomor {{ (a.phone_number or "") | tojson }}"), phone: {{ (a.phone_number or "") | tojson }} });
-  {% endfor %}{% endfor %}
-  var selId = "";
-  function comboDisp(a) {
-    return a.label + (a.phone ? " (" + a.phone + ")" : "");
-  }
-  function matches(a, q) {
-    if (!q) return true;
-    var ql = q.toLowerCase();
-    var digits = q.replace(/\D/g, "");
-    return a.label.toLowerCase().indexOf(ql) >= 0 ||
-           (digits && a.phone.indexOf(digits) >= 0) ||
-           a.phone.indexOf(q) >= 0;
-  }
-  function topSuggestions(q) {
-    var u = userSel.value;
-    var list = ACCTS.filter(function (a) { return !u || a.user === u; });
-    list = list.filter(function (a) { return matches(a, q); });
-    list.sort(function (a, b) {
-      var ql = (q || "").toLowerCase();
-      var d = (q || "").replace(/\D/g, "");
-      var ai = a.label.toLowerCase().indexOf(ql);
-      var bi = b.label.toLowerCase().indexOf(ql);
-      if (ai < 0) ai = d ? a.phone.indexOf(d) : -1;
-      if (bi < 0) bi = d ? b.phone.indexOf(d) : -1;
-      if (ai < 0) ai = 999; if (bi < 0) bi = 999;
-      if (ai !== bi) return ai - bi;
-      if (a.phone.length !== b.phone.length) return a.phone.length - b.phone.length;
-      return a.label.localeCompare(b.label);
+// Pengguna -> combobox bisa diketik (banyak user); Nomor (label) -> dropdown biasa
+  var userCombo = document.getElementById("user-combo");
+  var userSuggest = document.getElementById("user-suggest");
+  var userVal = document.getElementById("user-combo-val");
+  var acctSel = document.getElementById("acct-select");
+  var USERS = [];
+  {% for g in admin_acct_groups %}
+  USERS.push({{ g.username | tojson }});
+  {% endfor %}
+
+  function filterAccts(user) {
+    Array.prototype.forEach.call(acctSel.options, function (o) {
+      o.hidden = o.value && o.dataset.user !== user;
     });
-    return list;
   }
-  var activeIdx = -1;
-  function render(list) {
-    suggest.innerHTML = "";
+  function topUser(q) {
+    var t = (q || "").trim().toLowerCase();
+    if (!t) return "";
+    var exact = USERS.filter(function (u) { return u.toLowerCase() === t; })[0];
+    if (exact) return exact;
+    var prefix = USERS.filter(function (u) { return u.toLowerCase().indexOf(t) === 0; })[0];
+    if (prefix) return prefix;
+    return USERS.filter(function (u) { return u.toLowerCase().indexOf(t) > 0; })[0] || "";
+  }
+  function renderUsers(list, q) {
+    userSuggest.innerHTML = "";
     if (!list.length) {
-      suggest.innerHTML = '<div class="combo-empty">Tidak ada nomor cocok</div>';
+      userSuggest.innerHTML = '<div class="combo-empty">Pengguna tidak ditemukan</div>';
     } else {
-      list.forEach(function (a, i) {
+      list.forEach(function (u, i) {
         var d = document.createElement("div");
-        d.className = "combo-item" + (i === activeIdx ? " active" : "");
-        d.textContent = "";
+        d.className = "combo-item" + (i === 0 ? " active" : "");
         var lab = document.createElement("span");
-        lab.textContent = a.label;
+        lab.textContent = u;
         d.appendChild(lab);
-        if (a.phone) {
-          var ph = document.createElement("span");
-          ph.className = "phone";
-          ph.textContent = " " + a.phone;
-          d.appendChild(ph);
-        }
-        d.addEventListener("click", function () { pick(a); });
-        d.addEventListener("mousemove", function () { setActive(i); });
-        suggest.appendChild(d);
+        d.addEventListener("click", function () { pickUser(u); });
+        userSuggest.appendChild(d);
       });
     }
   }
-  function setActive(i) {
-    var n = suggest.children.length;
-    if (!n) return;
-    if (i < 0) i = 0;
-    if (i >= n) i = n - 1;
-    activeIdx = i;
-    Array.prototype.forEach.call(suggest.children, function (c, j) {
-      c.classList.toggle("active", j === i);
-    });
-  }
-  function pick(a) {
-    selId = String(a.id);
-    comboId.value = selId;
-    combo.value = comboDisp(a);
-    suggest.hidden = true;
-    userSel.value = a.user;
-  }
-  function openSuggest(q) {
-    activeIdx = 0;
-    render(topSuggestions(q || combo.value));
-    suggest.hidden = false;
-  }
-  function syncSelection() {
-    var list = topSuggestions(combo.value);
-    for (var i = 0; i < list.length; i++) {
-      if (comboDisp(list[i]).toLowerCase() === combo.value.toLowerCase()) { pick(list[i]); return; }
+  function pickUser(u) {
+    userCombo.value = u;
+    userVal.value = u;
+    userSuggest.hidden = true;
+    filterAccts(u);
+    if (acctSel.selectedIndex !== 0) {
+      var selOpt = acctSel.options[acctSel.selectedIndex];
+      if (selOpt.dataset.user !== u) acctSel.value = "";
     }
-    comboId.value = selId;
   }
-  if (combo && comboId) {
-    combo.addEventListener("focus", function () { openSuggest(combo.value); });
-    combo.addEventListener("input", function () {
-      if (selId) {
-        var cur = ACCTS.filter(function (x) { return String(x.id) === selId; })[0];
-        if (!cur || combo.value !== comboDisp(cur)) { selId = ""; comboId.value = ""; }
-      }
-      openSuggest(combo.value);
+  function userMatches(u, q) {
+    return u.toLowerCase().indexOf(q) >= 0;
+  }
+  if (userCombo && acctSel) {
+    userCombo.addEventListener("focus", function () {
+      var q = userCombo.value.trim().toLowerCase();
+      renderUsers(USERS.filter(function (u) { return userMatches(u, q); }), q);
+      userSuggest.hidden = false;
     });
-    combo.addEventListener("blur", function () {
-      setTimeout(syncSelection, 120);
-      suggest.hidden = true;
+    userCombo.addEventListener("input", function () {
+      var q = userCombo.value.trim().toLowerCase();
+      renderUsers(USERS.filter(function (u) { return userMatches(u, q); }), q);
+      userSuggest.hidden = false;
+      filterAccts(topUser(userCombo.value));
     });
-    combo.addEventListener("keydown", function (e) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    userCombo.addEventListener("blur", function () {
+      setTimeout(function () {
+        var match = topUser(userCombo.value);
+        if (match) { userCombo.value = match; userVal.value = match; }
+        userSuggest.hidden = true;
+      }, 120);
+    });
+    userCombo.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        var q = userCombo.value.trim().toLowerCase();
+        var t = USERS.filter(function (u) { return userMatches(u, q); })[0];
+        if (t) { pickUser(t); }
         e.preventDefault();
-        if (suggest.hidden) { openSuggest(combo.value); return; }
-        var n = suggest.children.length;
-        var step = e.key === "ArrowDown" ? 1 : -1;
-        if (!n) return;
-        var idx = (activeIdx + step + n) % n;
-        setActive(idx);
-      } else if (e.key === "Enter") {
-        var list = topSuggestions(combo.value);
-        var t = (activeIdx >= 0 && list[activeIdx]) ? list[activeIdx] : list[0];
-        if (t && !suggest.hidden) { pick(t); e.preventDefault(); }
       } else if (e.key === "Escape") {
-        suggest.hidden = true;
+        userSuggest.hidden = true;
       }
     });
-    userSel.addEventListener("change", function () {
-      if (selId) {
-        var a0 = ACCTS.filter(function (x) { return String(x.id) === selId; })[0];
-        if (a0 && a0.user !== userSel.value) { selId = ""; comboId.value = ""; combo.value = ""; }
-      }
-      openSuggest(combo.value);
-    });
-    var form = combo.closest("form");
-    if (form) {
-      form.addEventListener("submit", function () {
-        if (!comboId.value && combo.value.trim()) {
-          var list = topSuggestions(combo.value);
-          if (list.length) comboId.value = String(list[0].id);
-        }
-      });
-    }
     document.addEventListener("click", function (e) {
-      if (combo.closest(".combo-wrap") && !combo.closest(".combo-wrap").contains(e.target)) suggest.hidden = true;
+      if (userCombo.closest(".combo-wrap") && !userCombo.closest(".combo-wrap").contains(e.target)) userSuggest.hidden = true;
     });
-    var activeId = "{{ admin_active_account_id or '' }}";
-    if (activeId) {
-      var cur = ACCTS.filter(function (a) { return String(a.id) === activeId; })[0];
-      if (cur) { selId = activeId; comboId.value = activeId; combo.value = comboDisp(cur); userSel.value = cur.user; }
-    }
+    var initialUser = "{{ admin_active_username or '' }}";
+    if (initialUser) filterAccts(initialUser);
+    else filterAccts("");
   }
 })();
 </script>
