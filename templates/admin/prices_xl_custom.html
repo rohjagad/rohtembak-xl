@@ -7,17 +7,20 @@
 .price-form .lbl { font-size: 12px; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: .5px; }
 .price-input { width: 220px; }
 .price-form .price-btn { flex-shrink: 0; width: auto; }
-.rename-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.rename-form .form-control { width: 200px; }
-.rename-form .btn-primary { width: auto; }
+.rename-form { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+.rename-form .form-control { width: 100%; }
+.rename-form .btn-primary { width: auto; align-self: flex-start; }
+.pin-fee-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.pin-fee-row label { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; max-width: 200px; }
+.price-hint { font-size: 12px; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: .5px; }
 .pin-label { font-weight: 600; }
 .pin-edit-row { display: none; }
 .pin-edit-row.open { display: table-row; }
 .pin-edit-box { padding: 2px 14px 14px; background: #fafafa; }
 .pin-edit-box .rename-form { margin-bottom: 0; }
 @media (max-width: 700px) {
-  .rename-form { display: flex; justify-content: space-between; }
-  .rename-form .form-control { width: 100%; }
+  .pin-fee-row { flex-direction: column; }
+  .pin-fee-row label { max-width: none; }
   .pin-edit-row.open { display: block; }
   .pin-edit-box { padding: 4px 14px 14px; background: #fafafa; }
 }
@@ -91,6 +94,8 @@ document.addEventListener('DOMContentLoaded', function () {
 <div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;">Family code terpin tidak valid — gunakan UUID family XL (8-64 karakter, huruf/angka/tanda hubung).</div>
 {% elif request.query_params.get('err') == 'label' %}
 <div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;">Label tidak boleh kosong.</div>
+{% elif request.query_params.get('err') == 'fee' %}
+<div style="background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;">Biaya admin harus berupa angka 0 atau lebih (kosong = tidak ada).</div>
 {% endif %}
 
 <div class="card">
@@ -119,13 +124,26 @@ document.addEventListener('DOMContentLoaded', function () {
             </tr>
             <tr class="pin-edit-row" id="pin-edit-row-{{ loop.index }}">
                 <td colspan="3">
-                    <div class="pin-edit-box">
-                        <form method="POST" action="/prices-xl/custom/pin/rename" class="rename-form">
-                            <input type="hidden" name="pin_index" value="{{ loop.index }}">
-                            <input type="text" name="label" class="form-control" maxlength="100" value="{{ p.label }}" aria-label="Ganti label pin">
-                            <button type="submit" class="btn btn-sm btn-outline" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
-                        </form>
-                    </div>
+<div class="pin-edit-box">
+  <form method="POST" action="/prices-xl/custom/pin/rename" class="rename-form">
+    <input type="hidden" name="pin_index" value="{{ loop.index }}">
+    <label style="display:flex;flex-direction:column;gap:4px;">
+      <span class="price-hint">Label</span>
+      <input type="text" name="label" class="form-control" maxlength="100" value="{{ p.label }}" aria-label="Ganti label pin">
+    </label>
+    <div class="pin-fee-row">
+      <label>
+        <span class="price-hint">Biaya admin Pulsa</span>
+        <input type="number" name="fee_pulsa" value="{{ p.get('fee_pulsa', '') }}" min="0" step="1000" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi pulsa (kosongkan untuk 0)">
+      </label>
+      <label>
+        <span class="price-hint">Biaya admin QRIS</span>
+        <input type="number" name="fee_qris" value="{{ p.get('fee_qris', '') }}" min="0" step="1000" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS (kosongkan untuk 0)">
+      </label>
+    </div>
+    <button type="submit" class="btn btn-sm btn-outline" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
+  </form>
+</div>
                 </td>
             </tr>
             {% else %}

@@ -1286,20 +1286,50 @@ def admin_prices_xl_custom_pin_add(
 def admin_prices_xl_custom_pin_rename(
     pin_index: int = Form(...),
     label: str = Form(""),
+    fee_pulsa: str = Form(""),
+    fee_qris: str = Form(""),
     user: User = Depends(get_current_user),
 ):
-    """Ubah label satu family code terpin."""
+    """Ubah label + biaya admin (fee pulsa/QRIS) satu family code terpin."""
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
     lbl = str(label or "").strip()[:100]
     if not lbl:
         return RedirectResponse(url="/prices-xl-custom?err=label", status_code=303)
+    fee_p, ok_p = _parse_admin_fee_input(fee_pulsa)
+    fee_q, ok_q = _parse_admin_fee_input(fee_qris)
+    if not (ok_p and ok_q):
+        return RedirectResponse(url="/prices-xl-custom?err=fee", status_code=303)
     cur = _custom_buy_read()
     pins = cur.get("pins") or []
     if 1 <= pin_index <= len(pins):
-        pins[pin_index - 1]["label"] = lbl
+        pin = pins[pin_index - 1]
+        pin["label"] = lbl
+        if fee_p is None:
+            pin.pop("fee_pulsa", None)
+        else:
+            pin["fee_pulsa"] = fee_p
+        if fee_q is None:
+            pin.pop("fee_qris", None)
+        else:
+            pin["fee_qris"] = fee_q
         _custom_buy_write(pins)
     return RedirectResponse(url="/prices-xl-custom", status_code=303)
+
+
+def _parse_admin_fee_input(s) -> tuple[int | None, bool]:
+    """Parse input fee admin: None untuk kosong; (None, False) kalau tidak valid
+    (bukan angka atau negatif); (int, True) untuk angka >= 0."""
+    s = str(s or "").strip()
+    if not s:
+        return None, True
+    try:
+        v = int(s)
+    except ValueError:
+        return None, False
+    if v < 0:
+        return None, False
+    return v, True
 
 
 @app.post("/prices-xl/custom/pin/delete")
@@ -3960,21 +3990,29 @@ def _custom_buy_path():
 
 
 def _norm_custom_pins(raw, default_label: str = "") -> list:
-    """Normalisasi daftar pin → [{"label", "family_code"}]. Entri legacy
-    bertipe string/UUID dianggap family code dengan label default grup.
-    Dedupe by family_code."""
+    """Normalisasi daftar pin → [{"label", "family_code", optional fee_pulsa,
+    fee_qris}]. Entri legacy bertipe string/UUID dianggap family code dengan
+    label default grup. Dedupe by family_code."""
     vals = raw if isinstance(raw, list) else []
     pins = []
     seen = set()
     for v in vals:
+        fee_pulsa = fee_qris = None
         if isinstance(v, dict):
             fc = _valid_custom_family_code(str(v.get("family_code") or ""))
             lbl = str(v.get("label") or v.get("name") or default_label).strip()[:100]
+            fee_pulsa = _clamp_custom_fee(v.get("fee_pulsa"))
+            fee_qris = _clamp_custom_fee(v.get("fee_qris"))
         else:
             fc = _valid_custom_family_code(str(v or ""))
             lbl = str(default_label or "").strip()[:100]
         if fc and fc not in seen:
-            pins.append({"label": lbl, "family_code": fc})
+            pin = {"label": lbl, "family_code": fc}
+            if fee_pulsa is not None:
+                pin["fee_pulsa"] = fee_pulsa
+            if fee_qris is not None:
+                pin["fee_qris"] = fee_qris
+            pins.append(pin)
             seen.add(fc)
     return pins
 
@@ -4010,6 +4048,15 @@ def _custom_buy_write(pins: list):
             }, f, ensure_ascii=False)
     except OSError as e:
         print(f"[custom-buy] gagal simpan: {e}")
+
+
+def _clamp_custom_fee(v) -> int | None:
+    """Fee admin pin → int >= 0, atau None untuk kosong/tidak valid."""
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 0 else None
 
 
 def _valid_custom_family_code(fc: str) -> str:
@@ -4440,7 +4487,7 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
         balance = bal.balance if bal else 0
     finally:
         db.close()
-    fee = _pkg_fee(CUSTOM_FAMILY_KEY, detail.get("number"), method)
+    fee = _custom_fee(family_code, detail.get("number"), method)
     base_price = charge if charge is not None else (detail.get("price") or 0)
     price = int(base_price or 0)
     remaining = balance - fee
@@ -4609,7 +4656,8 @@ def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin:
     if not family_code:
         return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
     charge = _parse_custom_rw(rw)
-    blocked = _panel_fee_precheck(user, CUSTOM_FAMILY_KEY, n, method)
+    fee = _custom_fee(family_code, n, method)
+    blocked = _panel_fee_precheck(user, CUSTOM_FAMILY_KEY, n, method, fee=fee)
     if blocked:
         return blocked
     db = next(get_db())
@@ -4617,7 +4665,7 @@ def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin:
     db.close()
     return _pay_with_fee(user, ctx,
                          lambda: _process_payment_custom(ctx.get("active_xl"), family_code, n, method, charge),
-                         CUSTOM_FAMILY_KEY, n, method)
+                         CUSTOM_FAMILY_KEY, n, method, fee=fee)
 
 
 def _process_payment_custom(active_xl, family_code, option_number, method, charge):
@@ -5134,6 +5182,26 @@ def _pkg_fee(family_key, option_number, method):
     return _get_family_fee(_fee_key(family_key, method))
 
 
+def _custom_pin_fee(family_code, method) -> int | None:
+    """Fee admin (biaya konsumsi saldo panel) milik pin yang family code-nya
+    cocok; None kalau family bukan pin atau belum diberi fee."""
+    if not family_code:
+        return None
+    key = "fee_pulsa" if method == "balance" else "fee_qris"
+    for pin in (_custom_buy_read().get("pins") or []):
+        if pin.get("family_code") == family_code:
+            return pin.get(key)
+    return None
+
+
+def _custom_fee(family_code, option_number, method) -> int:
+    """Fee pembelian custom: prioritas fee per pin, fallback fee family custom."""
+    fee = _custom_pin_fee(family_code, method)
+    if fee is not None:
+        return fee
+    return _pkg_fee(CUSTOM_FAMILY_KEY, option_number, method)
+
+
 def _set_family_fee(family_key, fee):
     db = next(get_db())
     try:
@@ -5285,13 +5353,14 @@ def checkout_paket(request: Request, family_prefix: str, option_number: int, met
     ctx.update({"request": request, **cc})
     return render("user/checkout.html", context=ctx)
 
-def _panel_fee_precheck(user, family_key: str, option_number: int, method: str):
+def _panel_fee_precheck(user, family_key: str, option_number: int, method: str, fee: int | None = None):
     """Return an error response when panel saldo cannot cover the fee; else None.
 
     Called before the XL API call so an underfunded user never reaches purchase.
     The authoritative re-check happens in _deduct_token_balance at settle time.
     """
-    fee = _pkg_fee(family_key, option_number, method)
+    if fee is None:
+        fee = _pkg_fee(family_key, option_number, method)
     db = next(get_db())
     try:
         bal = db.query(Balance).filter(Balance.user_id == user.id).first()
@@ -5402,13 +5471,13 @@ def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
     return qris_txs, matched_codes
 
 
-def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method):
+def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method, fee: int | None = None):
     """Bayar biaya konsumsi panel SEBELUM purchase XL, refund kalau gagal.
 
     Menutup celah: dua order konkuren yang sama-sama lolos precheck tidak
     lagi bisa mengantre paket tanpa fee — saldo sudah terpotong di depan.
     """
-    fee = _pkg_fee(family_key, option_number, method)
+    fee = _pkg_fee(family_key, option_number, method) if fee is None else fee
     desc = f"Konsumsi saldo panel {_family_label(family_key)} via {PAY_METHOD_LABELS.get(method, method)}"
     if _deduct_token_balance(user, fee, desc) is None:
         return JSONResponse({
@@ -5420,13 +5489,13 @@ def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method):
         _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
     return _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number, pay_extra,
                          phone_number=getattr(ctx.get("active_xl"), "phone_number", "") or "",
-                         fee_charged=True)
+                         fee_charged=True, fee=fee)
 
 
-def _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number=None, pay_extra=None, phone_number="", fee_charged=False):
+def _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number=None, pay_extra=None, phone_number="", fee_charged=False, fee=None):
     new_balance = None
     if pay_success:
-        fee = _pkg_fee(family_key, option_number, method)
+        fee = _pkg_fee(family_key, option_number, method) if fee is None else fee
         if not fee_charged:
             new_balance = _deduct_token_balance(
                 user,
