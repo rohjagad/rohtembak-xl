@@ -18,6 +18,20 @@
   margin: 0;
 }
 .pkg-section .body-wrap { padding: 14px; }
+.pkg-section .card-header {
+  font-weight: 700; cursor: pointer; user-select: none;
+  display: flex; justify-content: space-between; align-items: center;
+  color: #111827; padding: 12px 14px; background: rgba(0,0,0,0.03);
+}
+.pkg-section .card-header .chev {
+  display: inline-block; width: 10px; height: 10px;
+  border-right: 2px solid #6b7280; border-bottom: 2px solid #6b7280;
+  transform: rotate(45deg); transition: transform .2s;
+  margin-right: 4px;
+}
+.pkg-section .card-header .chev.up { transform: rotate(-135deg); }
+.pkg-section .body-wrap.collapsed { display: none; }
+.pkg-pin-count { font-weight: 400; font-size: .78rem; color: #6b7280; margin-right: 8px; }
 .package-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -137,26 +151,30 @@ function browseFc(fc, mode) {
     });
 }
 function browsePin(idx) {
-  var box = document.getElementById('custom-result');
-  var err = document.getElementById('custom-error');
-  if (err) err.hidden = true;
+  var box = document.getElementById('pin-' + idx + '-result');
+  if (!box) return;
+  if (box.dataset.loaded === '1') return;
   setBusy(box);
   fetch('/user/xl/custom/browse?pin=' + idx, { credentials: 'same-origin' })
     .then(function(r) { return r.json(); })
     .then(function(res) {
+      box.dataset.loaded = '1';
       if (res.ok) {
-        var title = document.getElementById('custom-title');
-        if (title) title.textContent = 'Beli Paket Custom — ' + (PIN_LABELS[idx - 1] || PIN_LABELS[0] || GROUP_LABEL);
         renderGrid(box, res.items, { pin: idx });
       } else {
-        if (err) { err.textContent = res.error || 'Gagal memuat katalog pin.'; err.hidden = false; }
-        box.innerHTML = '';
+        box.innerHTML = '<div class="pkg-error">' + escHtml(res.error || 'Gagal memuat katalog pin.') + '</div>';
       }
     })
     .catch(function() {
-      if (err) { err.textContent = 'Gagal terhubung. Coba lagi.'; err.hidden = false; }
-      box.innerHTML = '';
+      box.innerHTML = '<div class="pkg-error">Gagal terhubung. Coba lagi.</div>';
     });
+}
+function togglePin(idx) {
+  var body = document.getElementById('pin-' + idx + '-body');
+  var chev = document.getElementById('pin-' + idx + '-chev');
+  body.classList.toggle('collapsed');
+  chev.classList.toggle('up');
+  if (!body.classList.contains('collapsed')) browsePin(idx);
 }
 function browseFromInput() {
   var fc = document.getElementById('custom-fc').value.trim();
@@ -164,13 +182,8 @@ function browseFromInput() {
     document.getElementById('custom-fc').focus();
     return;
   }
-  var title = document.getElementById('custom-title');
-  if (title) title.textContent = 'Beli Paket Custom — ' + fc;
   browseFc(fc, { fc: fc });
 }
-document.addEventListener('DOMContentLoaded', function() {
-  if (PIN_COUNT > 0) browsePin(1);
-});
 </script>
 {% endblock %}
 {% block content %}
@@ -183,17 +196,6 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="pkg-section">
   <div class="pkg-title" id="custom-title">{{ custom_buy.label }}</div>
   <div class="body-wrap">
-    {% if custom_buy.pins %}
-    <div class="custom-pins">
-      <div class="lbl">Pin dari admin</div>
-      <div class="custom-pin-row">
-        {% for p in custom_buy.pins %}
-        <button type="button" class="btn btn-sm btn-outline" onclick="browsePin({{ loop.index }})">{{ p.label }} &rarr; Browse</button>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
     <div class="custom-form">
       <label class="lbl" for="custom-fc">Family code</label>
       <div class="custom-fc-row">
@@ -203,13 +205,28 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 
     <div class="pkg-hint">
-      {% if custom_buy.pins %}Pilih pin dari admin di atas, atau ketik family code mana pun — kode pin tidak ditampilkan.{% else %}Belum ada pin dari admin. Ketik family code mana pun untuk browse semua opsi paketnya.{% endif %}
+      {% if custom_buy.pins %}Ketik family code di atas untuk browse paket apa pun, atau buka pin dari admin di bawah.{% else %}Belum ada pin dari admin. Ketik family code mana pun untuk browse semua opsi paketnya.{% endif %}
     </div>
 
     <div id="custom-error" class="pkg-error" hidden></div>
     <div id="custom-result"><div class="pkg-empty">Ketik family code lalu tekan Browse untuk memuat paket.</div></div>
   </div>
 </div>
+
+{% if custom_buy.pins %}
+<div style="margin:20px 0 12px;font-size:.8rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Pin dari admin</div>
+{% for p in custom_buy.pins %}
+<div class="pkg-section">
+  <div class="card-header" onclick="togglePin({{ loop.index }})">
+    <span><span class="pkg-pin-count">Pin {{ loop.index }}</span>{{ p.label }}<span style="font-weight:400;font-size:.78rem;color:#6b7280;margin-left:8px;">&rarr; Browse</span></span>
+    <span class="chev" id="pin-{{ loop.index }}-chev"></span>
+  </div>
+  <div class="body-wrap collapsed" id="pin-{{ loop.index }}-body">
+    <div class="pkg-data" id="pin-{{ loop.index }}-result"><div class="pkg-empty">Buka section untuk memuat paket.</div></div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
 
 <a href="/user/dashboard" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali</a>
 
