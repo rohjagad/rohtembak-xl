@@ -2,12 +2,12 @@
 {% block title %}Atur Paket XL (Custom) - RohTembak (XL){% endblock %}
 {% block head %}
 <style>
-.price-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.price-form { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .price-form[hidden] { display: none; }
 .price-form label { display: flex; flex-direction: column; gap: 4px; }
 .price-form .lbl { font-size: 12px; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: .5px; }
 .price-input { width: 220px; }
-.price-form .price-btn { flex-shrink: 0; width: auto; }
+.price-form .price-btn { flex-shrink: 0; width: auto; align-self: flex-start; }
 .rename-form { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
 .rename-form .form-control { width: 100%; }
 .rename-form .btn-primary { width: auto; align-self: flex-start; }
@@ -162,15 +162,17 @@ document.addEventListener('DOMContentLoaded', function () {
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid #eee;">
         <button type="button" id="toggle-add" class="btn btn-sm btn-outline">+ Add Pin</button>
         <form id="add-pin-form" method="POST" action="/prices-xl/custom/pin/add" class="price-form" hidden style="margin-top:12px;">
-            <label>
-                <span class="lbl">Label</span>
-                <input type="text" name="label" class="form-control price-input" maxlength="100" placeholder="mis. Xtra Combo Plus" required title="Nama pin yang dilihat user di Beli Paket">
-            </label>
-            <label>
-                <span class="lbl">Family code (UUID)</span>
-                <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID family XL" required title="UUID family code yang dipin — user bisa browse paketnya tanpa mengetik kode (kode tidak ditampilkan)">
-            </label>
-            <button type="submit" class="btn btn-sm btn-primary price-btn">Tambah</button>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                <label>
+                    <span class="lbl">Label</span>
+                    <input type="text" name="label" class="form-control price-input" maxlength="100" placeholder="mis. Xtra Combo Plus" required title="Nama pin yang dilihat user di Beli Paket">
+                </label>
+                <label>
+                    <span class="lbl">Family code (UUID)</span>
+                    <input type="text" name="family_code" class="form-control price-input" maxlength="64" placeholder="UUID family XL" required title="UUID family code yang dipin — user bisa browse paketnya tanpa mengetik kode (kode tidak ditampilkan)">
+                </label>
+            </div>
+            <button type="submit" class="btn btn-sm btn-outline price-btn">Tambah</button>
         </form>
     </div>
 </div>
