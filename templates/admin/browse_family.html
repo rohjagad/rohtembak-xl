@@ -5,22 +5,26 @@
 <div class="header-section">
     <div>
         <div class="page-title">Browse: {{ label }}</div>
-        <div class="page-subtitle">Katalog live dari API XL — option #, nama, GB, harga. Tambahkan paket yang ingin ditampilkan ke group.</div>
+        <div class="page-subtitle">Katalog live dari API XL — otomatis dimuat tiap halaman dibuka. Pilih paket yang ingin ditampilkan di group.</div>
     </div>
 </div>
 
 {% if error %}
-<div class="card" style="border-color:#fecaca;">
-    <div class="price-hint" style="color:#b91c1c;">{{ error }} — <a href="/prices-xl/login-xl">Pilih pengguna &amp; sesi XL</a></div>
-</div>
-{% endif %}
-{% if note %}
-<div class="card" style="margin-bottom:16px;">
-    <div class="price-hint">{{ note }}</div>
+<div class="card" style="border-color:#fde68a;background:#fffbeb;">
+    <div style="display:flex;gap:10px;align-items:flex-start;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3z"></path></svg>
+        <div style="min-width:0;">
+            <div style="font-weight:600;color:#92400e;font-size:14px;">Belum bisa memuat katalog</div>
+            <div style="color:#a16207;font-size:13px;margin-top:4px;line-height:1.5;">
+                {{ error }} Untuk memperbaiki, pilih pengguna &amp; sesi XL yang siap dipakai di halaman login sesi — katalog di sini otomatis ditarik langsung dari API XL setiap halaman ini dibuka.
+                <a href="/prices-xl/login-xl" style="display:inline-block;margin-top:10px;color:#1d4ed8;text-decoration:underline;">Pilih pengguna &amp; sesi XL &rarr;</a>
+            </div>
+        </div>
+    </div>
 </div>
 {% endif %}
 
-<div class="card">
+<div class="card" style="{% if not rows and not error %}padding:0;{% endif %}">
     {% if rows %}
     <table>
         <thead>
@@ -56,41 +60,9 @@
             {% endfor %}
         </tbody>
     </table>
-    {% else %}
-    <p class="price-hint">Tidak ada data katalog. Klik <strong>Browse dari API</strong> untuk memuat.</p>
     {% endif %}
 </div>
 
-<div class="card">
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-        <form method="POST" action="/prices-xl/catalog/fetch" style="display:inline;">
-            <input type="hidden" name="family_key" value="{{ fam_key }}">
-            <button type="button" class="btn btn-sm btn-primary" id="refetchBtn">Browse dari API (refresh)</button>
-        </form>
-        <span class="price-hint" id="refetchStatus">{% if admin_xl_phone %}Sesi XL: {{ admin_xl_label or admin_xl_phone }}{% endif %}</span>
-    </div>
-</div>
-
 <a href="/prices-xl" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Atur Paket XL</a>
-
-<script>
-(function () {
-  var btn = document.getElementById("refetchBtn");
-  var status = document.getElementById("refetchStatus");
-  if (!btn) return;
-  btn.addEventListener("click", function () {
-    btn.disabled = true;
-    status.textContent = "Memuat katalog dari API XL...";
-    fetch("/prices-xl/catalog/fetch", { method: "POST" })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        status.textContent = d.message || (d.ok ? "Selesai." : "Gagal.");
-        if (d.ok) setTimeout(function () { location.reload(); }, 1200);
-        else btn.disabled = false;
-      })
-      .catch(function () { status.textContent = "Gagal terhubung."; btn.disabled = false; });
-  });
-})();
-</script>
 
 {% endblock %}

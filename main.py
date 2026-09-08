@@ -1426,7 +1426,7 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
             tokens = _admin_xl_tokens()
         if not tokens:
             _admin_xl_clear()
-            error = "Sesi XL kedaluwarsa. Pilih ulang pengguna & nomornya."
+            error = "Sesi XL kedaluwarsa — pilih ulang pengguna & nomornya."
         else:
             fam_code = cfg["family_code"]
             is_ent, mig = _family_api_params(fam_code)
@@ -1449,7 +1449,7 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
             elif not error:
                 error = "Katalog kosong / tidak ditemukan. Cek family code."
     else:
-        error = "Belum ada sesi XL dipilih."
+        error = "Belum ada sesi XL untuk memuat katalog."
     selected = set(cfg["option_codes"])
     return render("admin/browse_family.html", context={
         "request": request,
