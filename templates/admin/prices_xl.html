@@ -117,7 +117,7 @@
             <div class="price-hint">Pilih pengguna lalu nomor (label) yang dipakai proses katalog &amp; harga.</div>
         </div>
     </div>
-    <form method="POST" action="/prices-xl/login-xl/select">
+    <form method="POST" action="/prices-xl/login-xl/select" id="sesi-form">
         <div class="xl-sess-grid" style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
             <label style="display:flex;flex-direction:column;gap:6px;">
                 <span class="price-hint" style="font-weight:600;">Pengguna</span>
@@ -127,7 +127,7 @@
                            value="{{ admin_active_username or '' }}">
                     <span class="combo-caret"></span>
                     <div id="user-suggest" class="combo-suggest" hidden></div>
-                    <input type="hidden" id="user-combo-val" value="{{ admin_active_username or '' }}">
+                    <input type="hidden" id="user-combo-val" name="username" value="{{ admin_active_username or '' }}">
                 </div>
             </label>
             <label style="display:flex;flex-direction:column;gap:6px;">
@@ -449,6 +449,19 @@
     return u.toLowerCase().indexOf(q) >= 0;
   }
   if (userCombo && acctSel) {
+    // Simpan form sesi: snap pengguna + pastikan nomor cocok dengan pengguna
+    // sebelum submit (blur setTimeout bisa telat kalau klik Simpan dulu).
+    var sesiForm = document.getElementById("sesi-form");
+    if (sesiForm) {
+      sesiForm.addEventListener("submit", function () {
+        var m = topUser(userCombo.value);
+        if (m) { userCombo.value = m; userVal.value = m; }
+        if (acctSel.selectedIndex !== 0) {
+          var selOpt = acctSel.options[acctSel.selectedIndex];
+          if (selOpt.dataset.user !== userVal.value) acctSel.value = "";
+        }
+      });
+    }
     userCombo.addEventListener("focus", function () {
       var q = userCombo.value.trim().toLowerCase();
       renderUsers(USERS.filter(function (u) { return userMatches(u, q); }), q);

@@ -94,19 +94,39 @@
 .combo-empty { padding: 10px 12px; color: #9ca3af; font-size: 13px; }
 </style>
 <script>
-var PAY_URL = '{{ pay_url | safe }}';
+var PAY_URL = {{ pay_url | tojson }};
 var API_PRICE = {{ base_price | int }};
 var SUM_FEE = {{ fee | int }};
+var DECOY_PRICE = 0;
+var DECOY_ROW = null;
 function fmtIDR(n) { return Number(n).toLocaleString('id-ID') + ' IDR'; }
-function setRewritePrice() {
+function normRw() {
   var el = document.getElementById('rewrite-input');
   var n = parseInt((el ? el.value : '').trim(), 10);
-  if (isNaN(n) || n < 0) n = API_PRICE;
-  if (el) el.value = n;
+  if (isNaN(n) || n < 0) return '';
+  return String(n);
+}
+function updateSum() {
+  var n = parseInt(normRw() || API_PRICE, 10);
   var p = document.getElementById('sum-price');
   var t = document.getElementById('sum-total');
   if (p) p.textContent = fmtIDR(n);
-  if (t) t.textContent = fmtIDR(n + SUM_FEE);
+  if (t) t.textContent = fmtIDR(n + SUM_FEE + DECOY_PRICE);
+  if (DECOY_ROW) {
+    if (DECOY_PRICE > 0) {
+      DECOY_ROW.hidden = false;
+      DECOY_ROW.querySelector('[data-decoy-price]').textContent = fmtIDR(DECOY_PRICE);
+    } else {
+      DECOY_ROW.hidden = true;
+    }
+  }
+}
+function setRewritePrice() {
+  var el = document.getElementById('rewrite-input');
+  var n = normRw();
+  if (!n) { el.value = API_PRICE; n = String(API_PRICE); }
+  else el.value = n;
+  updateSum();
 }
 function payNow() {
   var btn = document.getElementById('pay-btn');
@@ -124,8 +144,9 @@ function payNow() {
 
   var decoyVal = document.getElementById('decoy-val');
   var decoy = decoyVal ? decoyVal.value : '';
-  var rwEl = document.getElementById('rewrite-input');
-  var rw = rwEl ? rwEl.value.trim() : '';
+  // rw dinormalisasi ke integer (sama seperti yang tampil di ringkasan) —
+  // hindari beda nominal antara layar & yang ditagih (mis. "50000.75"/"1e3").
+  var rw = normRw();
   var url = PAY_URL.replace('__DECOY__', decoy).replace('__RW__', rw);
 
   fetch(url, {method: 'POST'})
@@ -152,7 +173,7 @@ function payNow() {
     })
     .catch(function(e) {
       stopPayDots();
-      box.innerHTML = '<span class="t-title">result</span><span class="t-prompt">$</span> <span class="t-err">ERROR</span>\n' + e.message;
+      box.innerHTML = '<span class="t-title">result</span><span class="t-prompt">$</span> <span class="t-err">ERROR</span>\n' + escapeHtml(e.message);
       btn.disabled = false;
     });
 }
@@ -212,10 +233,18 @@ function closePendingModal() {
   var val = document.getElementById('decoy-val');
   var label = document.getElementById('decoy-trigger-label');
   if (!trigger || !suggest || !val || !label) return;
-  var DECOYS = [{ name: '', label: 'Tanpa decoy' }];
+  DECOY_ROW = document.getElementById('decoy-row');
+  var DECOYS = [{ name: '', label: 'Tanpa decoy', price: 0 }];
   {% for d in decoy_options %}
-  DECOYS.push({ name: {{ d.name | tojson }}, label: {{ d.label | tojson }} });
+  DECOYS.push({ name: {{ d.name | tojson }}, label: {{ d.label | tojson }}, price: {{ d.price | int }} });
   {% endfor %}
+  function pickDecoy(d) {
+    val.value = d.name;
+    label.textContent = d.label;
+    suggest.hidden = true;
+    DECOY_PRICE = d.price || 0;
+    if (typeof updateSum === 'function') updateSum();
+  }
   function renderPanel() {
     suggest.innerHTML = '';
     DECOYS.forEach(function (d) {
@@ -224,9 +253,7 @@ function closePendingModal() {
       el.textContent = d.label;
       function pick(ev) {
         if (ev) ev.preventDefault();
-        val.value = d.name;
-        label.textContent = d.label;
-        suggest.hidden = true;
+        pickDecoy(d);
       }
       el.addEventListener('mousedown', pick);
       el.addEventListener('click', pick);
@@ -277,9 +304,14 @@ function closePendingModal() {
           <span class="v" id="sum-price">{{ base_price|rupiah }} IDR</span>
         </div>
         {% if decoy_extra > 0 %}
-        <div class="saldo-row">
+        <div class="saldo-row" id="decoy-row" {% if not decoy_extra %}hidden{% endif %}>
           <span class="k">Biaya decoy{% if decoy_name %} ({{ decoy_name }}){% endif %}</span>
-          <span class="v">{{ decoy_extra|rupiah }} IDR</span>
+          <span class="v" data-decoy-price>{{ decoy_extra|rupiah }} IDR</span>
+        </div>
+        {% else %}
+        <div class="saldo-row" id="decoy-row" hidden>
+          <span class="k">Biaya decoy</span>
+          <span class="v" data-decoy-price>0 IDR</span>
         </div>
         {% endif %}
         <div class="saldo-row">

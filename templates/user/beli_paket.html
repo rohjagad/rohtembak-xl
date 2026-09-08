@@ -161,9 +161,12 @@ SECTIONS.forEach(function(s) { FAM_PARAM_FROM_BOX[s.key] = s.fam; });
 var ALL_FAM_PARAM = ['meta'].concat(SECTIONS.map(function(s) { return s.fam; })
   .filter(function(v, i, a) { return a.indexOf(v) === i; })).join(',');
 var streamedBoxes = {};
+var CATALOG_VER = null;
 
 function cacheReq(key) {
-  return new Request('/beli-paket-cache/' + XL_ID + '/' + key);
+  // Versi katalog jadi bagian kunci: saat admin ubah daftar opsi yang
+  // ditampilkan, cache lama tidak lagi terpakai (tidak tampil katalog basi).
+  return new Request('/beli-paket-cache/' + XL_ID + '/' + (CATALOG_VER || 'v0') + '/' + key);
 }
 function cardHtmlFor(key, it, i) {
   var fam = FAM_PARAM_FROM_BOX[key] || key;
@@ -278,16 +281,26 @@ function streamData(famParam) {
   streamedBoxes = {};
   var src = new EventSource(DATA_STREAM_URL + '?families=' + encodeURIComponent(famParam));
   src.addEventListener('meta', function(ev) {
-    payload.xl_info = JSON.parse(ev.data).xl_info;
+    var d = JSON.parse(ev.data);
+    payload.xl_info = d.xl_info;
+    if (d.ver) CATALOG_VER = d.ver;
     if (payload.xl_info) {
       renderBanner(payload);
-      cachePut(CACHE_META, { xl_info: payload.xl_info, fetched_at: Date.now() / 1000, last_refresh: fmtDateTime(new Date()) });
+      cachePut(CACHE_META, { xl_info: payload.xl_info, fetched_at: Date.now() / 1000, last_refresh: fmtDateTime(new Date()), ver: CATALOG_VER });
     }
   });
   src.addEventListener('family', function(ev) {
     var d = JSON.parse(ev.data);
     payload[d.key] = d.items;
-    if (!d.ok) return;
+    if (d.ver) CATALOG_VER = d.ver;
+    if (!d.ok) {
+      // Gagal muat (API/refresh) ≠ kosong: kasih pesan error di box-nya.
+      var box = document.querySelector('.pkg-data[data-box="' + d.key + '"]');
+      if (box) box.innerHTML = '<div class="pkg-empty">Gagal memuat paket.</div>';
+      SECTIONS.filter(function(s) { return s.fam === d.key || s.key === d.key; })
+        .forEach(function(s) { streamedBoxes[s.key] = true; });
+      return;
+    }
     cachePut(cacheReq(d.key), { items: d.items, fetched_at: Date.now() / 1000 });
     SECTIONS.filter(function(s) { return s.fam === d.key || s.key === d.key; })
       .forEach(function(s) {
@@ -297,6 +310,7 @@ function streamData(famParam) {
   });
   src.addEventListener('done', function(ev) {
     var d = JSON.parse(ev.data);
+    if (d.ver) CATALOG_VER = d.ver;
     payload.error = d.error;
     payload.last_refresh = fmtDateTime(new Date());
     finishBoxes(payload);
@@ -321,15 +335,22 @@ function loadData() {
     return;
   }
   caches.open(CACHE_NAME).then(function(cache) {
-    var jobs = [cache.match(CACHE_META).then(function(r) {
-      return r ? r.json().then(function(d) { return { k: 'meta', d: isFresh(d, CACHE_META_TTL) ? d : null }; }) : { k: 'meta', d: null };
-    })];
-    BOX_KEYS.forEach(function(key) {
-      jobs.push(cache.match(cacheReq(key)).then(function(r) {
-        return r ? r.json().then(function(d) { return { k: key, d: isFresh(d) ? d : null }; }) : { k: key, d: null };
-      }));
+    // Baca meta dulu: payload-nya bawa versi katalog yang jadi bagian kunci
+    // cache box. Versi harus diketahui SEBELUM membaca cache box.
+    return cache.match(CACHE_META).then(function(r) {
+      return r ? r.json().then(function(d) { return isFresh(d, CACHE_META_TTL) ? d : null; }) : null;
+    }).then(function(metaD) {
+      if (metaD && metaD.ver) CATALOG_VER = metaD.ver;
+      var jobs = [];
+      if (metaD) { renderBanner(metaD); setHint(metaD); }
+      else jobs.push(Promise.resolve({ k: 'meta', d: null }));
+      BOX_KEYS.forEach(function(key) {
+        jobs.push(cache.match(cacheReq(key)).then(function(r) {
+          return r ? r.json().then(function(d) { return { k: key, d: isFresh(d) ? d : null }; }) : { k: key, d: null };
+        }));
+      });
+      return Promise.all(jobs);
     });
-    return Promise.all(jobs);
   }).catch(function(err) {
     console.error('[beli-paket] cache baca gagal:', err);
     return null;
@@ -338,8 +359,7 @@ function loadData() {
     var want = [];
     res.forEach(function(r) {
       if (r.k === 'meta') {
-        if (r.d) { renderBanner(r.d); setHint(r.d); }
-        else want.push('meta');
+        if (!r.d) want.push('meta');
       } else {
         if (r.d) renderBox(r.k, r.d.items, r.d, false);
         else want.push(FAM_PARAM_FROM_BOX[r.k] || r.k);

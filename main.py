@@ -2,6 +2,7 @@ import os
 import io
 import time
 import json
+import hashlib
 import html as _html
 import calendar
 import random
@@ -726,6 +727,17 @@ def admin_credentials_update(
     db.add(user)
     db.commit()
     return RedirectResponse(url=f"/admin/credentials?updated=1&mode={mode}", status_code=303)
+
+
+def _valid_decoy_name(v, ptype):
+    """Validasi nama decoy dari backup restore: hanya nama yang benar-benar
+    ada di decoy_data/{ptype} (atau kosong/'none'). Mencegah path traversal
+    lewat load_decoy_config(os.path.join(...))."""
+    v = str(v or "").strip()
+    if v in ("", "none"):
+        return v
+    known = {d["name"] for d in _list_decoys(ptype)}
+    return v if v in known else ""
 
 
 def _decoy_json_body(cfg: dict) -> dict:
@@ -1564,11 +1576,13 @@ def _family_codes_remove(family_key, number):
 @app.post("/prices-xl/login-xl/select")
 def admin_prices_xl_login_select(
     account_id: str = Form(""),
+    username: str = Form(""),
     user: User = Depends(get_current_user),
 ):
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
     account_id = str(account_id or "").strip()
+    username = str(username or "").strip()
     if not account_id:
         # Kosong (pilih pengguna / pilih nomor) → set sesi admin XL jadi kosong.
         _admin_xl_clear()
@@ -1579,8 +1593,14 @@ def admin_prices_xl_login_select(
         return RedirectResponse(url="/prices-xl", status_code=303)
     db = next(get_db())
     try:
-        acct = db.query(XLAccount).filter(XLAccount.id == account_id).first()
-        if not acct:
+        acct = db.query(XLAccount).options(joinedload(XLAccount.user)).filter(XLAccount.id == account_id).first()
+        # Validasi: hanya akun milik user biasa yang punya refresh_token; dan
+        # kalau admin pilih pengguna, nomor harus milik pengguna itu.
+        if not acct or acct.user is None or acct.user.role != "user" or not acct.refresh_token:
+            _admin_xl_clear()
+            return RedirectResponse(url="/prices-xl", status_code=303)
+        if username and acct.user.username != username:
+            _admin_xl_clear()
             return RedirectResponse(url="/prices-xl", status_code=303)
         _admin_xl_write({
             "account_id": acct.id,
@@ -3066,8 +3086,8 @@ async def admin_restore_upload(
             "option_number": on,
             "display_price": dp,
             "rewrite_price": rp,
-            "decoy_qris": str(p.get("decoy_qris") or "")[:100],
-            "decoy_pulsa": str(p.get("decoy_pulsa") or "")[:100],
+            "decoy_qris": _valid_decoy_name(p.get("decoy_qris"), "qris"),
+            "decoy_pulsa": _valid_decoy_name(p.get("decoy_pulsa"), "balance"),
             "fee_qris": _norm_fee(p.get("fee_qris")),
             "fee_pulsa": _norm_fee(p.get("fee_pulsa")),
         })
@@ -4295,10 +4315,24 @@ def _sse_event(event, obj):
     return "event: %s\ndata: %s\n\n" % (event, json.dumps(obj, ensure_ascii=False))
 
 
+def _catalog_version():
+    """Versi katalog beli-paket: berubah saat admin mengubah daftar opsi yang
+    ditampilkan (option_codes) / status aktif family. Dipakai client sebagai
+    bagian kunci cache supaya perubahan admin tidak tertutup cache lama."""
+    try:
+        reg = _active_families()
+        payload = json.dumps({k: v["option_codes"] for k, v in reg.items()},
+                             sort_keys=True, ensure_ascii=False)
+        return hashlib.md5(payload.encode("utf-8")).hexdigest()[:10]
+    except Exception:
+        return "0"
+
+
 def _stream_beli_paket_events(active_xl, want, disconnected=None):
     error = False
     fetched_at = None
     xl_info = None
+    catalog_ver = _catalog_version()
     fam_want = [f for f in _active_families() if f in want]
     need_tokens = bool(fam_want) or ("meta" in want)
 
@@ -4331,7 +4365,7 @@ def _stream_beli_paket_events(active_xl, want, disconnected=None):
         else:
             error = True
 
-    yield _sse_event("meta", {"xl_info": xl_info})
+    yield _sse_event("meta", {"xl_info": xl_info, "ver": catalog_ver})
 
     if tokens:
         for f in fam_want:
@@ -4346,8 +4380,7 @@ def _stream_beli_paket_events(active_xl, want, disconnected=None):
             if not cfg.get("option_codes"):
                 # Group tanpa opsi yang ditampilkan (admin belum tambah apa pun) —
                 # tampilkan kosong, jangan buang semua opsi katalog.
-                _api_delay()
-                yield _sse_event("family", {"key": entry_key, "items": [], "ok": True})
+                yield _sse_event("family", {"key": entry_key, "items": [], "ok": True, "ver": catalog_ver})
                 continue
             _api_delay()
             ok = True
@@ -4360,13 +4393,14 @@ def _stream_beli_paket_events(active_xl, want, disconnected=None):
                 print(f"[beli-paket] Error: {e}")
                 ok = False
                 error = True
-            yield _sse_event("family", {"key": entry_key, "items": result, "ok": ok})
+            yield _sse_event("family", {"key": entry_key, "items": result, "ok": ok, "ver": catalog_ver})
         fetched_at = time.time()
 
     yield _sse_event("done", {
         "error": error,
         "fetched_at": fetched_at,
         "last_refresh": datetime.now(WIB).strftime("%d %b %Y, %H:%M WIB"),
+        "ver": catalog_ver,
     })
 
 
@@ -4418,7 +4452,7 @@ def _custom_cfg() -> dict:
 
 
 def _parse_custom_rw(rw):
-    """Parse rewrite harga dari query. Kosong/negatif/bukan angka -> None
+    """Parse rewrite harga dari query. Kosong/nol/negatif/bukan angka -> None
     (pakai harga API). Berlaku HANYA untuk group custom."""
     rw = str(rw or "").strip()
     if not rw:
@@ -4427,7 +4461,7 @@ def _parse_custom_rw(rw):
         v = int(rw)
     except ValueError:
         return None
-    return v if v >= 0 else None
+    return v if v > 0 else None
 
 
 def _resolve_custom_fc(fc: str, pin: int = 0) -> str | None:
@@ -4497,7 +4531,23 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
     base_price = charge if charge is not None else (detail.get("price") or 0)
     price = int(base_price or 0)
     remaining = balance - fee
-    decoy_options = [{"name": d["name"], "label": (d.get("label") or d["name"])} for d in _list_decoys(method)]
+    decoy_options = []
+    for d in _list_decoys(method):
+        # Harga decoy per metode: QRIS live dari API (per akun), balance dari
+        # config. Dipakai JS checkout untuk menampilkan total yang benar.
+        if method == "qris":
+            decoy_price = _qris_decoy_price(active_xl, d["name"])
+        else:
+            try:
+                from app.service.decoy import load_decoy_config
+                decoy_price = int((load_decoy_config("balance", d["name"]) or {}).get("price") or 0)
+            except Exception:
+                decoy_price = 0
+        decoy_options.append({
+            "name": d["name"],
+            "label": (d.get("label") or d["name"]),
+            "price": decoy_price,
+        })
     return {
         "detail": detail,
         "method": method,
@@ -4684,8 +4734,9 @@ def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin:
 
 def _process_payment_custom(active_xl, family_code, option_number, method, charge, decoy_name=""):
     """Settle pembelian custom. Rewrite harga (charge) AMAN — BUKAN BUG —
-    disengaja untuk group custom; tanpa decoy/fee admin. decoy_name (opsional)
-    dipilih pembeli di halaman checkout — decoy dipakai untuk qris & balance."""
+    disengaja untuk group custom (tanpa override display/decoy admin).
+    decoy_name (opsional) dipilih pembeli di halaman checkout — decoy dipakai
+    untuk qris & balance; fee saldo panel ditangani _pay_with_fee (pemanggil)."""
     pay_error = None
     pay_success = None
     detail = None
@@ -4721,7 +4772,10 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                         qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", bool(decoy_name), decoy_name or "default")
                         if isinstance(qris_result, tuple) and qris_result:
                             qris_b64, _, qris_remaining = qris_result
-                            pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
+                            if qris_b64:
+                                pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
+                            else:
+                                pay_success = "QRIS berhasil dibuat di MyXL, tapi kode QR gagal dimuat. Buka Riwayat Transaksi XL untuk melihatnya."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
                         else:
@@ -4739,6 +4793,17 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
             pay_error = "Akun XL tidak aktif."
     pay_extra["terminal_output"] = _stdout_buf.getvalue()
     return detail, pay_error, pay_success, pay_extra
+
+
+def _family_option_visible(fam_key, option_number):
+    """Opsi boleh diakses user hanya bila family aktif & nomornya termasuk
+    option_codes (daftar 'ditampilkan' admin di Atur Paket XL). Ini lawan
+    dari guard stream beli-paket — kalau list tampil kosong, detail/checkout/
+    pay ikut tertutup (jangan bisa beli lewat URL langsung)."""
+    cfg = _active_families().get(fam_key)
+    if not cfg:
+        return False
+    return option_number in cfg["option_codes"]
 
 
 def _family_fetch_spec(fam_key):
@@ -4803,6 +4868,8 @@ def user_xl_detail_paket(request: Request, family_prefix: str, option_number: in
         return RedirectResponse(url="/admin/dashboard", status_code=303)
     fam_key = _family_key_by_prefix(family_prefix)
     if not fam_key:
+        return RedirectResponse(url="/user/xl/beli-paket", status_code=303)
+    if not _family_option_visible(fam_key, option_number):
         return RedirectResponse(url="/user/xl/beli-paket", status_code=303)
     db = next(get_db())
     ctx = get_user_context(user, db)
@@ -5077,10 +5144,13 @@ def _process_payment(active_xl, fam_key, option_number, method):
                     elif method == "qris":
                         from app.client.purchase.qris import show_qris_payment
                         _api_delay()
-                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", use_decoy, decoy_name)
+                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", False)
                         if isinstance(qris_result, tuple) and qris_result:
                             qris_b64, _, qris_remaining = qris_result
-                            pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
+                            if qris_b64:
+                                pay_success = "QRIS berhasil dibuat. Silakan pindai kode QR untuk menyelesaikan pembayaran."
+                            else:
+                                pay_success = "QRIS berhasil dibuat di MyXL, tapi kode QR gagal dimuat. Buka Riwayat Transaksi XL untuk melihatnya."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
                         else:
@@ -5259,9 +5329,11 @@ def _qris_decoy_price(active_xl=None, name="default"):
     Checkout menampilkan harga ini agar total QRIS di layar == total yang
     benar-benar ditagih. Hanya harga hasil fetch live yang di-cache; nilai
     fallback config TIDAK di-cache supaya begitu ada akun XL aktif,
-    checkout berikutnya langsung memakai harga live.
+    checkout berikutnya langsung memakai harga live. Cache di-kunci per akun
+    XL (harga decoy bisa beda antar nomor).
     """
-    cache_key = f"qris:{name}"
+    acct_key = f"{active_xl.id}" if (active_xl and active_xl.id) else "?"
+    cache_key = f"qris:{acct_key}:{name}"
     entry = _decoy_price_cache.get(cache_key)
     if entry and entry[1] > time.time():
         return entry[0]
@@ -5352,6 +5424,8 @@ def checkout_paket(request: Request, family_prefix: str, option_number: int, met
     fam_key = _family_key_by_prefix(family_prefix)
     if not fam_key:
         return RedirectResponse(url="/user/xl/beli-paket", status_code=303)
+    if not _family_option_visible(fam_key, option_number):
+        return RedirectResponse(url="/user/xl/beli-paket", status_code=303)
     db = next(get_db())
     ctx = get_user_context(user, db)
     db.close()
@@ -5394,6 +5468,8 @@ def pay_paket(request: Request, family_prefix: str, option_number: int, method: 
         return JSONResponse({"ok": False, "message": "Metode pembayaran tidak tersedia."}, status_code=400)
     fam_key = _family_key_by_prefix(family_prefix)
     if not fam_key:
+        return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
+    if not _family_option_visible(fam_key, option_number):
         return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
     blocked = _panel_fee_precheck(user, fam_key, option_number, method)
     if blocked:

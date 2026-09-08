@@ -232,8 +232,15 @@ def show_qris_payment(
     print("Fetching QRIS code...")
     data = get_qris_code(api_key, tokens, transaction_id)
     if not data or not data.get("qr_code"):
-        print("Failed to get QRIS code.")
-        return
+        # Transaksi QRIS SUDAH dibuat di XL — jangan balas gagal (fee panel
+        # akan di-refund padahal QRIS masih bisa dibayar). Coba sekali lagi,
+        # lalu fallback ke (None, txid, 0): kode QR gagal dimuat tapi transaksi
+        # ada; user diminta buka Riwayat Transaksi XL.
+        time.sleep(2)
+        data = get_qris_code(api_key, tokens, transaction_id)
+    if not data or not data.get("qr_code"):
+        print("Failed to get QRIS code (transaction exists).")
+        return None, transaction_id, 0
     qris_code = data["qr_code"]
     remaining = int(data.get("remaining_time") or 0)
     print(f"QRIS data:\n{qris_code}")

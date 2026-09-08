@@ -134,7 +134,7 @@ function renderDetail(d) {
   h += '<div style="font-size:.78rem;color:#166534;margin:0 0 6px;">Harga custom (rewrite) diatur di halaman checkout — klik metode pembayaran lalu modifikasi nominalnya.</div>';
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:14px;font-size:.85rem;">';
   h += '<span style="color:#888;">Masa Aktif</span><span style="font-weight:600;text-align:right;">' + esc(d.validity || '-') + '</span>';
-  h += '<span style="color:#888;">Poin</span><span style="font-weight:600;text-align:right;">' + d.point + '</span>';
+  h += '<span style="color:#888;">Poin</span><span style="font-weight:600;text-align:right;">' + esc(d.point) + '</span>';
   h += '<span style="color:#888;">Plan Type</span><span style="font-weight:600;text-align:right;">' + esc(d.plan_type || '-') + '</span>';
   h += '</div></div>';
   h += '<div class="section-divider"></div>';

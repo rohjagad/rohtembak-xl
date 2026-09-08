@@ -103,7 +103,6 @@
 window.BANNER_SSE = false;
 var PIN_LABELS = [{% for p in custom_buy.pins %}{{ p.label|tojson }}{% if not loop.last %},{% endif %}{% endfor %}];
 var PIN_COUNT = PIN_LABELS.length;
-var GROUP_LABEL = "{{ custom_buy.label }}";
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
