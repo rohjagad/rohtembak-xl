@@ -11,15 +11,9 @@
 
 {% if error %}
 <div class="card" style="border-color:#fde68a;background:#fffbeb;">
-    <div style="display:flex;gap:10px;align-items:flex-start;">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3z"></path></svg>
-        <div style="min-width:0;">
-            <div style="font-weight:600;color:#92400e;font-size:14px;">Belum bisa memuat katalog</div>
-            <div style="color:#a16207;font-size:13px;margin-top:4px;line-height:1.5;">
-                {{ error }} Untuk memperbaiki, pilih pengguna &amp; sesi XL yang siap dipakai di halaman login sesi — katalog di sini otomatis ditarik langsung dari API XL setiap halaman ini dibuka.
-                <a href="/prices-xl/login-xl" style="display:inline-block;margin-top:10px;color:#1d4ed8;text-decoration:underline;">Pilih pengguna &amp; sesi XL &rarr;</a>
-            </div>
-        </div>
+    <div style="color:#a16207;font-size:13px;line-height:1.5;">
+        {{ error }} Untuk memperbaiki, pilih pengguna &amp; sesi XL yang siap dipakai di halaman login sesi — katalog di sini otomatis ditarik langsung dari API XL setiap halaman ini dibuka.
+        <a href="/prices-xl/login-xl" style="display:inline-block;margin-top:10px;color:#1d4ed8;text-decoration:underline;">Pilih pengguna &amp; sesi XL &rarr;</a>
     </div>
 </div>
 {% endif %}
