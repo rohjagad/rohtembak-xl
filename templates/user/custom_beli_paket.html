@@ -232,9 +232,10 @@ function browseFromInput() {
       <div id="custom-result"><div class="pkg-empty">{% if custom_buy.pins %}Ketik family code lalu tekan Browse, atau buka pin dari admin di bawah.{% else %}Ketik family code lalu tekan Browse untuk memuat paket.{% endif %}</div></div>
     </div>
   </div>
+</div>
 
-  {% if custom_buy.pins %}
-  <div style="margin:20px 0 12px;font-size:.8rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Pin dari admin</div>
+{% if custom_buy.pins %}
+<div style="margin:20px 0 12px;font-size:.8rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;">Pin dari admin</div>
   {% for p in custom_buy.pins %}
   <div class="pkg-section">
     <div class="card-header" onclick="togglePin({{ loop.index }})">
@@ -246,8 +247,7 @@ function browseFromInput() {
     </div>
   </div>
   {% endfor %}
-  {% endif %}
-</div>
+{% endif %}
 
 <a href="/user/dashboard" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali</a>
 
