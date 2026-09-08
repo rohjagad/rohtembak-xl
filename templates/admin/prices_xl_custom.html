@@ -15,7 +15,6 @@
 .pin-edit-row.open { display: table-row; }
 .pin-edit-box { padding: 2px 14px 14px; background: #fafafa; }
 .pin-edit-box .rename-form { margin-bottom: 0; }
-.pin-edit-sep { border-top: 1px solid #e5e7eb; margin: 12px 0; }
 @media (max-width: 700px) {
   .rename-form { display: flex; justify-content: space-between; }
   .rename-form .form-control { width: 100%; }
@@ -57,7 +56,7 @@ function togglePinEdit(idx) {
   if (!row) return;
   var open = !row.classList.contains('open');
   row.classList.toggle('open', open);
-  if (btn) btn.textContent = open ? 'Tutup' : 'edit';
+  if (btn) btn.textContent = open ? 'Tutup' : 'Edit';
   if (open) {
     var inp = row.querySelector('input[name="label"]');
     if (inp) inp.focus();
@@ -111,7 +110,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 <td data-label="Label"><span class="pin-label">{{ p.label }}</span></td>
                 <td data-label="Family Code" style="font-family:monospace;font-size:13px;">{{ p.family_code }}</td>
                 <td data-label="" style="text-align:right;">
-                    <button type="button" class="btn btn-sm btn-outline" id="pin-edit-{{ loop.index }}" onclick="togglePinEdit({{ loop.index }})">edit</button>
+                    <button type="button" class="btn btn-sm btn-outline" id="pin-edit-{{ loop.index }}" onclick="togglePinEdit({{ loop.index }})">Edit</button>
+                    <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
+                        <input type="hidden" name="pin_index" value="{{ loop.index }}">
+                        <button type="submit" class="btn btn-sm btn-outline" title="Hapus dari daftar ini" style="color:#dc2626;border-color:#fecaca;">Hapus</button>
+                    </form>
                 </td>
             </tr>
             <tr class="pin-edit-row" id="pin-edit-row-{{ loop.index }}">
@@ -121,11 +124,6 @@ document.addEventListener('DOMContentLoaded', function () {
                             <input type="hidden" name="pin_index" value="{{ loop.index }}">
                             <input type="text" name="label" class="form-control" maxlength="100" value="{{ p.label }}" aria-label="Ganti label pin">
                             <button type="submit" class="btn btn-sm btn-outline" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
-                        </form>
-                        <div class="pin-edit-sep"></div>
-                        <form action="/prices-xl/custom/pin/delete" method="POST">
-                            <input type="hidden" name="pin_index" value="{{ loop.index }}">
-                            <button type="submit" class="btn btn-sm btn-outline" title="Hapus dari daftar ini" style="color:#dc2626;border-color:#fecaca;">Hapus</button>
                         </form>
                     </div>
                 </td>
