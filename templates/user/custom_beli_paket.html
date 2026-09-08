@@ -76,6 +76,10 @@
 .custom-fc-row { display: flex; gap: 8px; width: 100%; }
 .custom-fc-row input { flex: 1 1 auto; width: 100%; min-width: 0; }
 .custom-fc-row .btn-primary { width: auto; flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 640px) {
+  .custom-fc-row { flex-direction: column; }
+  .custom-fc-row .btn-primary { width: 100%; }
+}
 .custom-pins { margin-bottom: 14px; }
 .custom-pin-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .pkg-hint { margin: 10px 0; color: #6b7280; font-size: .85rem; }
@@ -204,12 +208,8 @@ function browseFromInput() {
       </div>
     </div>
 
-    <div class="pkg-hint">
-      {% if custom_buy.pins %}Ketik family code di atas untuk browse paket apa pun, atau buka pin dari admin di bawah.{% else %}Belum ada pin dari admin. Ketik family code mana pun untuk browse semua opsi paketnya.{% endif %}
-    </div>
-
     <div id="custom-error" class="pkg-error" hidden></div>
-    <div id="custom-result"><div class="pkg-empty">Ketik family code lalu tekan Browse untuk memuat paket.</div></div>
+    <div id="custom-result"><div class="pkg-empty">{% if custom_buy.pins %}Ketik family code lalu tekan Browse, atau buka pin dari admin di bawah.{% else %}Ketik family code lalu tekan Browse untuk memuat paket.{% endif %}</div></div>
   </div>
 </div>
 
