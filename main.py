@@ -4972,17 +4972,6 @@ def _append_decoy_item(items, tokens, payment_type="balance", name="default"):
     return items + [decoy_item], int(decoy_item["item_price"] or 0)
 
 
-def _parse_bizz_total(error_msg):
-    msg = str(error_msg or "")
-    for token in ("=", "valid amount is "):
-        if token in msg:
-            try:
-                return int(msg.split(token)[1].strip())
-            except (ValueError, IndexError):
-                continue
-    return None
-
-
 def _friendly_settle_msg(msg, default="Pembayaran gagal."):
     """Terjemahkan pesan penolakan jumlah dari API XL jadi bahasa Indonesia
     yang jelas. Pola TUI: 'harga yang benar adalah XXXX'. Strict — tidak
@@ -5016,15 +5005,7 @@ def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_n
     if method == "qris":
         return pay_fn(API_KEY, tokens, items_with_decoy, "SHARE_PACKAGE", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
 
-    res = pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
-    if isinstance(res, dict) and res.get("status") != "SUCCESS":
-        msg = str(res.get("message", ""))
-        if "Bizz-err.Amount.Total" in msg or "valid amount is" in msg:
-            valid_amount = _parse_bizz_total(msg)
-            if valid_amount is not None:
-                print(f"Adjusted total amount to: {valid_amount}")
-                res = pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=valid_amount, token_confirmation_idx=-1)
-    return res
+    return pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
 
 
 def _process_payment(active_xl, fam_key, option_number, method):
