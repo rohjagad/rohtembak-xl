@@ -33,16 +33,15 @@
   border-top: 6px solid #6b7280; pointer-events: none;
 }
 .select-wrap { position: relative; }
-.select-wrap select {
-  width: 100%; box-sizing: border-box; padding-right: 32px;
-  appearance: none; -webkit-appearance: none; -moz-appearance: none;
-  background: transparent; cursor: pointer;
+.select-trigger {
+  width: 100%; box-sizing: border-box; padding: 10px 34px 10px 14px;
+  border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+  background: #fff; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
-/* Dropdown yang mengembang (native popup): style option-nya */
-.select-wrap select option {
-  background: #fff; color: #1f2937; font-size: 13.5px; padding: 8px 10px;
-}
-.select-wrap select option[value=""] { color: #9ca3af; }
+.select-trigger:hover { border-color: #c7d2fe; }
+.select-trigger:focus { outline: none; border-color: #4361ee; box-shadow: 0 0 0 3px rgba(67,97,238,0.1); }
+.select-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .combo-suggest {
   position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
   margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
@@ -134,8 +133,12 @@
             <label style="display:flex;flex-direction:column;gap:6px;">
                 <span class="price-hint" style="font-weight:600;">Nomor (label)</span>
                 <div class="select-wrap">
-                    <select name="account_id" id="acct-select" class="form-control"><option value="">-- pilih nomor --</option>{% for g in admin_acct_groups %}{% for acc in g.accounts %}<option value="{{ acc.id }}" {{ 'selected' if admin_active_account_id == acc.id }} data-user="{{ g.username }}">{{ acc.label }}{% if acc.phone_number %} ({{ acc.phone_number }}){% endif %}</option>{% endfor %}{% endfor %}</select>
-                    <span class="combo-caret"></span>
+                    <div class="select-trigger" id="acct-trigger" tabindex="0" role="listbox" aria-label="Nomor (label)">
+                        <span class="select-trigger-label" id="acct-trigger-label">-- pilih nomor --</span>
+                        <span class="combo-caret"></span>
+                    </div>
+                    <div id="acct-suggest" class="combo-suggest" hidden></div>
+                    <select name="account_id" id="acct-select" class="form-control" hidden><option value="">-- pilih nomor --</option>{% for g in admin_acct_groups %}{% for acc in g.accounts %}<option value="{{ acc.id }}" {{ 'selected' if admin_active_account_id == acc.id }} data-user="{{ g.username }}">{{ acc.label }}{% if acc.phone_number %} ({{ acc.phone_number }}){% endif %}</option>{% endfor %}{% endfor %}</select>
                 </div>
             </label>
             <button type="submit" class="btn btn-sm btn-primary" style="padding:10px 22px;">Simpan</button>
@@ -337,15 +340,67 @@
   var userSuggest = document.getElementById("user-suggest");
   var userVal = document.getElementById("user-combo-val");
   var acctSel = document.getElementById("acct-select");
+  var acctTrigger = document.getElementById("acct-trigger");
+  var acctSuggest = document.getElementById("acct-suggest");
+  var acctLabel = document.getElementById("acct-trigger-label");
   var USERS = [];
   {% for g in admin_acct_groups %}
   USERS.push({{ g.username | tojson }});
   {% endfor %}
 
+  function acctText(o) {
+    return o.text; // label (phone mozok ke textContent option)
+  }
   function filterAccts(user) {
     Array.prototype.forEach.call(acctSel.options, function (o) {
       o.hidden = o.value && o.dataset.user !== user;
     });
+    if (!acctSuggest.hidden) renderAcctPanel();
+  }
+  function renderAcctPanel() {
+    acctSuggest.innerHTML = "";
+    var seen = false;
+    Array.prototype.forEach.call(acctSel.options, function (o) {
+      if (o.hidden) return;
+      var d = document.createElement("div");
+      d.className = "combo-item" + (o.selected ? " active" : "");
+      d.textContent = acctText(o);
+      d.title = acctText(o);
+      function doPick(ev) {
+        if (ev) ev.preventDefault();
+        acctSel.value = o.value;
+        acctLabel.textContent = acctText(o);
+        acctSuggest.hidden = true;
+        Array.prototype.forEach.call(acctSuggest.children, function (c) { c.classList.remove("active"); });
+        d.classList.add("active");
+      }
+      d.addEventListener("mousedown", doPick);
+      d.addEventListener("click", doPick);
+      acctSuggest.appendChild(d);
+      seen = true;
+    });
+    if (!seen) acctSuggest.innerHTML = '<div class="combo-empty">Tidak ada nomor</div>';
+  }
+  function syncAcctLabel() {
+    var o = acctSel.options[acctSel.selectedIndex];
+    acctLabel.textContent = o ? acctText(o) : "-- pilih nomor --";
+  }
+  if (acctTrigger && acctSuggest && acctSel) {
+    acctTrigger.addEventListener("click", function () {
+      if (acctSuggest.hidden) { renderAcctPanel(); acctSuggest.hidden = false; }
+      else acctSuggest.hidden = true;
+    });
+    acctTrigger.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { acctSuggest.hidden = true; return; }
+      if (e.key === "Enter" || e.key === "ArrowDown") {
+        if (acctSuggest.hidden) { renderAcctPanel(); acctSuggest.hidden = false; }
+        e.preventDefault();
+      }
+    });
+    document.addEventListener("click", function (e) {
+      if (acctTrigger.closest(".select-wrap") && !acctTrigger.closest(".select-wrap").contains(e.target)) acctSuggest.hidden = true;
+    });
+    syncAcctLabel();
   }
   function topUser(q) {
     var t = (q || "").trim().toLowerCase();
@@ -388,6 +443,7 @@
       var selOpt = acctSel.options[acctSel.selectedIndex];
       if (selOpt.dataset.user !== u) acctSel.value = "";
     }
+    syncAcctLabel();
   }
   function userMatches(u, q) {
     return u.toLowerCase().indexOf(q) >= 0;
