@@ -18,8 +18,8 @@
 </div>
 {% endif %}
 
-<div class="card" style="{% if not rows and not error %}padding:0;{% endif %}">
-    {% if rows %}
+{% if rows %}
+<div class="card">
     <table>
         <thead>
             <tr>
@@ -54,8 +54,8 @@
             {% endfor %}
         </tbody>
     </table>
-    {% endif %}
 </div>
+{% endif %}
 
 <a href="/prices-xl" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Atur Paket XL</a>
 
