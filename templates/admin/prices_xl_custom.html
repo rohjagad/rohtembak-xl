@@ -10,6 +10,12 @@
 .rename-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .rename-form .form-control { width: 200px; }
 .rename-form .btn-primary { width: auto; }
+.pin-label { font-weight: 600; }
+tr.pin-editing .pin-label { display: none; }
+tr:not(.pin-editing) .rename-form { display: none; }
+tr:not(.pin-editing) .pin-delete { display: none; }
+.pin-delete { display: inline; }
+tr.pin-editing .pin-delete { display: inline; }
 @media (max-width: 700px) {
   .rename-form { display: flex; justify-content: space-between; }
   .rename-form .form-control { width: 100%; }
@@ -43,6 +49,17 @@
 }
 </style>
 <script>
+function togglePinEdit(idx) {
+  var row = document.getElementById('pin-row-' + idx);
+  if (!row) return;
+  var editing = row.classList.toggle('pin-editing');
+  var btn = document.getElementById('pin-edit-' + idx);
+  if (btn) btn.textContent = editing ? 'Batal' : 'Ubah';
+  if (editing) {
+    var inp = row.querySelector('input[name="label"]');
+    if (inp) inp.focus();
+  }
+}
 document.addEventListener('DOMContentLoaded', function () {
   var addBtn = document.getElementById('toggle-add');
   if (addBtn) {
@@ -87,8 +104,9 @@ document.addEventListener('DOMContentLoaded', function () {
         </thead>
         <tbody>
             {% for p in custom_buy.pins %}
-            <tr>
+            <tr id="pin-row-{{ loop.index }}">
                 <td data-label="Label">
+                    <span class="pin-label">{{ p.label }}</span>
                     <form method="POST" action="/prices-xl/custom/pin/rename" class="rename-form">
                         <input type="hidden" name="pin_index" value="{{ loop.index }}">
                         <input type="text" name="label" class="form-control" maxlength="100" value="{{ p.label }}" aria-label="Ganti label pin">
@@ -97,7 +115,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 </td>
                 <td data-label="Family Code" style="font-family:monospace;font-size:13px;">{{ p.family_code }}</td>
                 <td data-label="" style="text-align:right;">
-                    <form action="/prices-xl/custom/pin/delete" method="POST" style="display:inline;">
+                    <button type="button" class="btn btn-sm btn-outline" id="pin-edit-{{ loop.index }}" onclick="togglePinEdit({{ loop.index }})">Ubah</button>
+                    <form action="/prices-xl/custom/pin/delete" method="POST" class="pin-delete" style="display:inline-block;">
                         <input type="hidden" name="pin_index" value="{{ loop.index }}">
                         <button type="submit" class="btn btn-sm btn-outline" title="Hapus dari daftar ini" style="color:#dc2626;border-color:#fecaca;">Hapus</button>
                     </form>
