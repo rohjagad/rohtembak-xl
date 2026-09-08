@@ -111,6 +111,9 @@
     <div style="margin-top:12px;display:inline-flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:8px 12px;font-size:13px;">
         <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;"></span>
         Sesi aktif: <strong>{{ admin_xl_label or admin_xl_phone }}</strong>{% if admin_xl_label %} ({{ admin_xl_phone }}){% endif %}
+        <form method="POST" action="/prices-xl/login-xl/logout" style="margin:0;display:inline;">
+            <button type="submit" class="btn btn-outline btn-sm" style="margin-left:8px;padding:4px 10px;">Ganti sesi</button>
+        </form>
     </div>
     {% endif %}
 </div>

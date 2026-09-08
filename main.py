@@ -1569,40 +1569,6 @@ def _family_codes_remove(family_key, number):
 
 # ─── Admin pilih sesi XL user (untuk fetch katalog) ─────────────────────────
 
-@app.get("/prices-xl/login-xl", response_class=HTMLResponse)
-def admin_prices_xl_login_page(request: Request, user: User = Depends(get_current_user)):
-    if user.role != "admin":
-        return RedirectResponse(url="/user/dashboard", status_code=303)
-    sess = _admin_xl_read()
-    accounts = []
-    db = next(get_db())
-    try:
-        users = db.query(User).filter(User.role == "user").order_by(User.username).all()
-        for u in users:
-            accts = [a for a in u.xl_accounts if a.phone_number]
-            if not accts:
-                continue
-            accounts.append({
-                "username": u.username,
-                "accounts": [{
-                    "id": a.id,
-                    "label": a.label or f"Nomor {a.phone_number}",
-                    "phone_number": a.phone_number,
-                    "is_active": a.is_active,
-                    "has_token": bool(a.refresh_token),
-                } for a in accts],
-            })
-    finally:
-        db.close()
-    return render("admin/login_xl.html", context={
-        "request": request,
-        "user": user,
-        "accounts": accounts,
-        "admin_xl_label": (sess or {}).get("label"),
-        "admin_xl_phone": (sess or {}).get("phone_number"),
-    })
-
-
 @app.post("/prices-xl/login-xl/select")
 def admin_prices_xl_login_select(
     account_id: str = Form(""),
@@ -1623,7 +1589,7 @@ def admin_prices_xl_login_select(
     try:
         acct = db.query(XLAccount).filter(XLAccount.id == account_id).first()
         if not acct:
-            return RedirectResponse(url="/prices-xl/login-xl", status_code=303)
+            return RedirectResponse(url="/prices-xl", status_code=303)
         _admin_xl_write({
             "account_id": acct.id,
             "phone_number": acct.phone_number,
@@ -1639,7 +1605,7 @@ def admin_prices_xl_logout(user: User = Depends(get_current_user)):
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
     _admin_xl_clear()
-    return RedirectResponse(url="/prices-xl/login-xl", status_code=303)
+    return RedirectResponse(url="/prices-xl", status_code=303)
 
 
 @app.post("/admin/balance/add")
