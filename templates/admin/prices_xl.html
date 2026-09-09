@@ -224,13 +224,14 @@
                             <input type="number" name="rewrite_price" value="{{ it.rewrite if it.rewrite is not none else '' }}" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
                         </label>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            {# PERINGATAN: fee boleh nominal BEBAS (mis. 750) — server terima int >= 0 apa pun; JANGAN step="1000" #}
                             <label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:90px;max-width:110px;">
                                 <span class="price-hint">Fee Pulsa:</span>
-                                <input type="number" name="fee_pulsa" value="{{ it.fee_pulsa }}" min="0" step="1000" class="form-control price-input" style="width:100%;" title="Biaya saldo panel per transaksi pulsa" form="price-form-{{ sec.key }}-{{ it.number }}">
+                                <input type="number" name="fee_pulsa" value="{{ it.fee_pulsa }}" min="0" step="1" class="form-control price-input" style="width:100%;" title="Biaya saldo panel per transaksi pulsa" form="price-form-{{ sec.key }}-{{ it.number }}">
                             </label>
                             <label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:90px;max-width:110px;">
                                 <span class="price-hint">Fee QRIS:</span>
-                                <input type="number" name="fee_qris" value="{{ it.fee_qris }}" min="0" step="1000" class="form-control price-input" style="width:100%;" title="Biaya saldo panel per transaksi QRIS" form="price-form-{{ sec.key }}-{{ it.number }}">
+                                <input type="number" name="fee_qris" value="{{ it.fee_qris }}" min="0" step="1" class="form-control price-input" style="width:100%;" title="Biaya saldo panel per transaksi QRIS" form="price-form-{{ sec.key }}-{{ it.number }}">
                             </label>
                         </div>
                         <label style="display:flex;flex-direction:column;gap:4px;">

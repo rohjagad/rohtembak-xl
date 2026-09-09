@@ -137,13 +137,17 @@ document.addEventListener('DOMContentLoaded', function () {
       <input type="text" name="label" class="form-control" maxlength="100" value="{{ p.label }}" aria-label="Ganti label pin">
     </label>
     <div class="pin-fee-row">
+      {# PERINGATAN: fee admin boleh nominal BEBAS (mis. 750, 1250) — server
+         (_parse_admin_fee_input/_clamp_custom_fee) menerima int >= 0 apa pun.
+         JANGAN ubah step menjadi 1000/kelipatan — itu bug lama yang menolak
+         nominal bukan kelipatan 1000 (laporan user, fix di commit fee-step). #}
       <label>
         <span class="price-hint">Biaya admin Pulsa</span>
-        <input type="number" name="fee_pulsa" value="{{ p.get('fee_pulsa', '') }}" min="0" step="1000" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi pulsa (kosongkan untuk 0)">
+        <input type="number" name="fee_pulsa" value="{{ p.get('fee_pulsa', '') }}" min="0" step="1" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi pulsa (kosongkan untuk 0)">
       </label>
       <label>
         <span class="price-hint">Biaya admin QRIS</span>
-        <input type="number" name="fee_qris" value="{{ p.get('fee_qris', '') }}" min="0" step="1000" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS (kosongkan untuk 0)">
+        <input type="number" name="fee_qris" value="{{ p.get('fee_qris', '') }}" min="0" step="1" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS (kosongkan untuk 0)">
       </label>
     </div>
     <button type="submit" class="btn btn-sm btn-outline" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
@@ -180,15 +184,16 @@ document.addEventListener('DOMContentLoaded', function () {
 <div class="card" style="margin-top:16px;">
     <h2 style="font-size:16px;margin:0 0 12px;">Biaya admin (Browse Manual)</h2>
     <div class="page-subtitle" style="margin-bottom:12px;">Fee saldo panel untuk pembelian custom yang family code-nya diketik manual (bukan pin). Beli paket normal & pin custom tetap memakai fee masing-masing.</div>
+    {# PERINGATAN: fee admin boleh nominal BEBAS (mis. 750) — JANGAN step="1000" #}
     <form method="POST" action="/prices-xl/custom/browse-fee" class="price-form">
         <div style="display:flex;gap:12px;flex-wrap:wrap;">
             <label>
                 <span class="lbl">Biaya admin Pulsa</span>
-                <input type="number" name="fee_pulsa" value="{{ custom_buy.get('browse_fee_pulsa', '') }}" min="0" step="1000" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi pulsa untuk browse manual">
+                <input type="number" name="fee_pulsa" value="{{ custom_buy.get('browse_fee_pulsa', '') }}" min="0" step="1" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi pulsa untuk browse manual">
             </label>
             <label>
                 <span class="lbl">Biaya admin QRIS</span>
-                <input type="number" name="fee_qris" value="{{ custom_buy.get('browse_fee_qris', '') }}" min="0" step="1000" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS untuk browse manual">
+                <input type="number" name="fee_qris" value="{{ custom_buy.get('browse_fee_qris', '') }}" min="0" step="1" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS untuk browse manual">
             </label>
         </div>
         <button type="submit" class="btn btn-sm btn-outline price-btn" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
