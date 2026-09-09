@@ -5120,12 +5120,21 @@ def _friendly_settle_msg(msg, default="Pembayaran gagal."):
 
 
 def _demanded_valid_amount(res) -> int | None:
-    """Ambil jumlah yang diminta XL dari respon settlement yang ditolak
-    ('Payment amount is not valid, valid amount is XXXX'). None = tidak ada."""
+    """Ambil jumlah yang diminta XL dari respon settlement yang ditolak.
+    Dua format yang dikenal:
+    - QRIS: 'Payment amount is not valid, valid amount is 102000'
+    - Balance: 'Bizz-err.Amount.Total = 102000'  (pola TUI: split '=')
+    None = tidak ada.
+    """
     if not isinstance(res, dict):
         return None
     msg = str(res.get("message") or "")
-    m = re.search(r"valid\s+(?:payment\s+)?amount\s+is\s+([\d.,]+)", msg, re.IGNORECASE)
+    m = (
+        re.search(r"valid\s+(?:payment\s+)?amount\s+is\s+([\d.,]+)", msg, re.IGNORECASE)
+        or re.search(r"[Aa]mount\.?[Tt]otal[^\d=]*=\s*([\d.,]+)", msg)
+        or re.search(r"(?:valid|correct|right)\s+(?:payment\s+)?amount\s+(?:is|should\s+be)\s+([\d.,]+)", msg, re.IGNORECASE)
+        or re.search(r"(?:correct\s+amount|amount\s+should\s+be|harga\s+yang\s+benar)\s*(?:is|=|:)?\s*([\d.,]+)", msg, re.IGNORECASE)
+    )
     if m:
         try:
             return int(m.group(1).replace(".", "").replace(",", ""))
