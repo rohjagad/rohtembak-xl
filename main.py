@@ -5107,6 +5107,7 @@ def _friendly_settle_msg(msg, default="Pembayaran gagal."):
     raw = str(msg or "")
     m = (
         re.search(r"valid\s+(?:payment\s+)?amount\s+is\s+([\d.,]+)", raw, re.IGNORECASE)
+        or re.search(r"[Aa]mount\.?[Tt]otal[^\d=]*=\s*([\d.,]+)", raw)
         or re.search(r"(?:valid|correct|right)\s+(?:payment\s+)?amount\s+(?:is|should\s+be)\s+([\d.,]+)", raw, re.IGNORECASE)
         or re.search(r"(?:correct\s+amount|amount\s+should\s+be|harga\s+yang\s+benar)\s*(?:is|=|:)?\s*([\d.,]+)", raw, re.IGNORECASE)
     )
