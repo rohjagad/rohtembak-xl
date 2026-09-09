@@ -2,12 +2,45 @@
 {% block title %}Tambah Decoy {{ type_label }} - RohTembak (XL){% endblock %}
 {% block head %}
 <style>
-.decoy-form { display:flex; gap:10px; align-items:flex-end; max-width:560px; }
-.decoy-form label { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:6px; }
-@media (max-width: 560px) {
-    .decoy-form { flex-direction:column; align-items:stretch; }
-    .decoy-form .btn { width:100%; }
+.pkg-section {
+  border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 10px;
+  background: #fff;
+  margin-bottom: 14px;
+  overflow: hidden;
 }
+.pkg-section .pkg-title {
+  font-size: 15px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px;
+  background: rgba(0,0,0,0.03);
+  color: #111827;
+  padding: 12px 14px;
+  margin: 0;
+}
+.pkg-section .body-wrap { padding: 14px; }
+.custom-form {
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e5e7eb;
+  max-width: 560px;
+}
+.custom-form .lbl {
+  display: block; font-weight: 600; font-size: 12px; color: #111827;
+  text-transform: uppercase; letter-spacing: .5px; margin: 0 0 6px;
+}
+.custom-fc-row { display: flex; gap: 8px; width: 100%; }
+.custom-fc-row input { flex: 1 1 auto; width: 100%; min-width: 0; }
+.custom-fc-row .btn { width: auto; flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 640px) {
+  .custom-fc-row { flex-direction: column; }
+  .custom-fc-row .btn-primary { width: 100%; }
+}
+.pkg-error {
+  font-size: .82rem; color: #b91c1c;
+  background: #fef2f2; border: 1px solid #fecaca;
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
+}
+.table-wrap { overflow-x: auto; }
 </style>
 {% endblock %}
 {% block content %}
@@ -19,65 +52,72 @@
     </div>
 </div>
 
-<div class="card" style="margin-bottom:16px;">
-    <form method="GET" action="/admin/decoys/browse" class="price-form decoy-form">
-        <input type="hidden" name="type" value="{{ type }}">
-        {% if name %}<input type="hidden" name="name" value="{{ name }}">{% endif %}
-        <label>
-            <span class="price-hint" style="font-weight:600;">Family code</span>
-            <input type="text" name="fc" value="{{ fc }}" class="form-control" placeholder="Ketik family code XL" autocomplete="off">
-        </label>
-        <button type="submit" class="btn btn-sm btn-primary" style="width:auto;flex:0 0 auto;white-space:nowrap;">Browse</button>
-    </form>
-</div>
+<div class="pkg-section">
+    <div class="pkg-title">Browse Family Code</div>
+    <div class="body-wrap">
+        <div class="custom-form">
+            <form method="GET" action="/admin/decoys/browse">
+                <input type="hidden" name="type" value="{{ type }}">
+                {% if name %}<input type="hidden" name="name" value="{{ name }}">{% endif %}
+                <label class="lbl" for="fc-input">Family code</label>
+                <div class="custom-fc-row">
+                    <input type="text" name="fc" id="fc-input" value="{{ fc }}" class="form-control" placeholder="Ketik family code XL" autocomplete="off">
+                    <button type="submit" class="btn btn-sm btn-primary">Browse</button>
+                </div>
+            </form>
+        </div>
 
-{% if error %}
-<div class="card" style="border-color:#fde68a;background:#fffbeb;">
-    <div style="color:#a16207;font-size:13px;line-height:1.5;">
-        {{ error }}
-        <a href="/admin/sesi-xl" style="display:inline-block;margin-top:10px;color:#1d4ed8;text-decoration:underline;">Kelola Sesi XL &rarr;</a>
+        {% if error %}
+        <div class="pkg-error">
+            {{ error }}
+            <a href="/admin/sesi-xl" style="display:inline-block;margin-top:10px;color:#1d4ed8;text-decoration:underline;">Kelola Sesi XL &rarr;</a>
+        </div>
+        {% endif %}
     </div>
 </div>
-{% endif %}
 
 {% if rows %}
-<div class="card">
-    <h2 style="font-size:16px;margin:0 0 12px;">{{ family_label }}</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Option #</th>
-                <th>Nama Paket</th>
-                <th>Harga API (IDR)</th>
-                <th>Variant</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for it in rows %}
-            <tr>
-                <td data-label="Option #"><strong>#{{ it.number }}</strong></td>
-                <td data-label="Nama">{{ it.name }}</td>
-                <td data-label="Harga API">{{ it.price }}</td>
-                <td data-label="Variant">{{ it.variant_name }}</td>
-                <td>
-                    <form method="POST" action="/admin/decoys/save-from-browse">
-                        <input type="hidden" name="payment_type" value="{{ type }}">
-                        {% if name %}<input type="hidden" name="name" value="{{ name }}">{% endif %}
-                        <input type="hidden" name="family_code" value="{{ fc }}">
-                        <input type="hidden" name="family_name" value="{{ family_label }}">
-                        <input type="hidden" name="variant_code" value="{{ it.variant_code }}">
-                        <input type="hidden" name="variant_name" value="{{ it.variant_name }}">
-                        <input type="hidden" name="option_name" value="{{ it.name }}">
-                        <input type="hidden" name="order" value="{{ it.order }}">
-                        <input type="hidden" name="price" value="{{ it.price }}">
-                        <button type="submit" class="btn btn-sm btn-outline">+ Jadikan Decoy</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div class="pkg-section">
+    <div class="pkg-title">{{ family_label }}</div>
+    <div class="body-wrap">
+        <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Option #</th>
+                    <th>Nama Paket</th>
+                    <th>Harga API (IDR)</th>
+                    <th>Variant</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for it in rows %}
+                <tr>
+                    <td data-label="Option #"><strong>#{{ it.number }}</strong></td>
+                    <td data-label="Nama">{{ it.name }}</td>
+                    <td data-label="Harga API">{{ it.price }}</td>
+                    <td data-label="Variant">{{ it.variant_name }}</td>
+                    <td>
+                        <form method="POST" action="/admin/decoys/save-from-browse">
+                            <input type="hidden" name="payment_type" value="{{ type }}">
+                            {% if name %}<input type="hidden" name="name" value="{{ name }}">{% endif %}
+                            <input type="hidden" name="family_code" value="{{ fc }}">
+                            <input type="hidden" name="family_name" value="{{ family_label }}">
+                            <input type="hidden" name="variant_code" value="{{ it.variant_code }}">
+                            <input type="hidden" name="variant_name" value="{{ it.variant_name }}">
+                            <input type="hidden" name="option_name" value="{{ it.name }}">
+                            <input type="hidden" name="order" value="{{ it.order }}">
+                            <input type="hidden" name="price" value="{{ it.price }}">
+                            <button type="submit" class="btn btn-sm btn-outline" style="width:auto;">+ Jadikan Decoy</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
 </div>
 {% endif %}
 
