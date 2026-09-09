@@ -88,7 +88,7 @@
 }
 .custom-fc-row { display: flex; gap: 8px; width: 100%; }
 .custom-fc-row input { flex: 1 1 auto; width: 100%; min-width: 0; }
-.custom-fc-row .btn-primary { width: auto; flex: 0 0 auto; white-space: nowrap; }
+.custom-fc-row .btn { width: auto; flex: 0 0 auto; white-space: nowrap; }
 @media (max-width: 640px) {
   .custom-fc-row { flex-direction: column; }
   .custom-fc-row .btn-primary { width: 100%; }
@@ -110,6 +110,15 @@
 window.BANNER_SSE = false;
 var PIN_LABELS = [{% for p in custom_buy.pins %}{{ p.label|tojson }}{% if not loop.last %},{% endif %}{% endfor %}];
 var PIN_COUNT = PIN_LABELS.length;
+var CUSTOM_EMPTY_HTML = {{ ('Ketik family code lalu tekan Browse, atau buka pin dari admin di bawah.' if custom_buy.pins else 'Ketik family code lalu tekan Browse untuk memuat paket.') | tojson }};
+function clearFc() {
+  var input = document.getElementById('custom-fc');
+  if (input) input.value = '';
+  var err = document.getElementById('custom-error');
+  if (err) { err.hidden = true; err.textContent = ''; }
+  var box = document.getElementById('custom-result');
+  if (box) box.innerHTML = '<div class="pkg-empty">' + CUSTOM_EMPTY_HTML + '</div>';
+}
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -216,6 +225,7 @@ function browseFromInput() {
         <div class="custom-fc-row">
           <input type="text" id="custom-fc" class="form-control" placeholder="Ketik family code XL" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();browseFromInput();}">
           <button type="button" class="btn btn-sm btn-primary" onclick="browseFromInput()" style="flex-shrink:0;">Browse</button>
+          <button type="button" class="btn btn-sm btn-outline" onclick="clearFc()" style="flex-shrink:0;">Clear</button>
         </div>
       </div>
 
