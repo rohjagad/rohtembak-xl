@@ -227,7 +227,7 @@ function showPendingModal() {
 function closePendingModal() {
   document.getElementById('pendingModal').classList.remove('show');
 }
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
   var trigger = document.getElementById('decoy-trigger');
   var suggest = document.getElementById('decoy-suggest');
   var val = document.getElementById('decoy-val');
@@ -274,7 +274,7 @@ function closePendingModal() {
   document.addEventListener('click', function (e) {
     if (trigger.closest('.select-wrap') && !trigger.closest('.select-wrap').contains(e.target)) suggest.hidden = true;
   });
-})();
+});
 </script>
 {% endblock %}
 {% block content %}
