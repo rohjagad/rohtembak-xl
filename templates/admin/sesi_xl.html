@@ -31,6 +31,84 @@
 .xl-sess-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
 @media (max-width: 700px) { .xl-sess-grid { grid-template-columns: 1fr; } .xl-sess-grid .btn { width: 100%; } }
 </style>
+{% endblock %}
+{% block content %}
+
+<div class="header-section">
+    <div>
+        <div class="page-title">Sesi XL Admin</div>
+        <div class="page-subtitle">Pilih pengguna lalu nomor (label) yang dipakai proses katalog &amp; harga (browse, decoy, Atur Paket XL).</div>
+    </div>
+</div>
+
+{% if err %}
+<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:16px;">
+    <div style="color:#b91c1c;font-size:13px;line-height:1.5;">
+        <strong>Sesi tidak tersimpan:</strong>
+        {% if err == 'account' %}Nomor XL tidak ditemukan.
+        {% elif err == 'role' %}Akun ini bukan milik pengguna biasa.
+        {% elif err == 'token' %}Akun ini tidak punya refresh token XL — login ulang user via OTP dulu.
+        {% elif err == 'mismatch' %}Nomor tidak cocok dengan pengguna yang dipilih.
+        {% else %}Terjadi kesalahan. Coba lagi.
+        {% endif %}
+    </div>
+</div>
+{% elif ok %}
+<div class="card" style="border-color:#bbf7d0;background:#f0fdf4;margin-bottom:16px;">
+    <div style="color:#166534;font-size:13px;">Sesi XL tersimpan.</div>
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4361ee" stroke-width="2" style="margin-top:1px;flex-shrink:0;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+        <div>
+            <div style="font-weight:600;font-size:14px;">Sesi XL untuk memuat katalog</div>
+            <div class="price-hint">Dipakai oleh: Browse Atur Paket XL, tambah decoy, dan harga live.</div>
+        </div>
+    </div>
+    <form method="POST" action="/prices-xl/login-xl/select" id="sesi-form">
+        <div class="xl-sess-grid">
+            <label style="display:flex;flex-direction:column;gap:6px;">
+                <span class="price-hint" style="font-weight:600;">Pengguna</span>
+                <div class="combo-wrap">
+                    <input type="text" id="user-combo" class="form-control" autocomplete="off"
+                           placeholder="Ketik nama pengguna…"
+                           value="{{ admin_active_username or '' }}">
+                    <span class="combo-caret"></span>
+                    <div id="user-suggest" class="combo-suggest" hidden></div>
+                    <input type="hidden" id="user-combo-val" name="username" value="{{ admin_active_username or '' }}">
+                </div>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;">
+                <span class="price-hint" style="font-weight:600;">Nomor (label)</span>
+                <div class="select-wrap">
+                    <div class="select-trigger" id="acct-trigger" tabindex="0" role="listbox" aria-label="Nomor (label)">
+                        <span class="select-trigger-label" id="acct-trigger-label">-- pilih nomor --</span>
+                        <span class="combo-caret"></span>
+                    </div>
+                    <div id="acct-suggest" class="combo-suggest" hidden></div>
+                    <select name="account_id" id="acct-select" class="form-control" hidden><option value="">-- pilih nomor --</option>{% for g in admin_acct_groups %}{% for acc in g.accounts %}<option value="{{ acc.id }}" {{ 'selected' if admin_active_account_id == acc.id }} data-user="{{ g.username }}">{{ acc.label }}{% if acc.phone_number %} ({{ acc.phone_number }}){% endif %}</option>{% endfor %}{% endfor %}</select>
+                </div>
+            </label>
+            <button type="submit" class="btn btn-sm btn-primary" style="padding:10px 22px;">Simpan</button>
+        </div>
+    </form>
+    {% if admin_xl_phone %}
+    <div style="margin-top:12px;display:inline-flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:8px 12px;font-size:13px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;"></span>
+        Sesi aktif: <strong>{{ admin_xl_label or admin_xl_phone }}</strong>{% if admin_xl_label %} ({{ admin_xl_phone }}){% endif %}
+        <form method="POST" action="/prices-xl/login-xl/logout" style="margin:0;display:inline;">
+            <button type="submit" class="btn btn-outline btn-sm" style="margin-left:8px;padding:4px 10px;">Ganti sesi</button>
+        </form>
+    </div>
+    {% else %}
+    <div style="margin-top:12px;color:#6b7280;font-size:13px;">Belum ada sesi XL aktif.</div>
+    {% endif %}
+</div>
+
+<a href="/admin/dashboard" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Dashboard</a>
+
 <script>
 (function () {
 // Pengguna -> combobox bisa diketik (banyak user); Nomor (label) -> dropdown biasa
@@ -191,82 +269,5 @@
   }
 })();
 </script>
-{% endblock %}
-{% block content %}
-
-<div class="header-section">
-    <div>
-        <div class="page-title">Sesi XL Admin</div>
-        <div class="page-subtitle">Pilih pengguna lalu nomor (label) yang dipakai proses katalog &amp; harga (browse, decoy, Atur Paket XL).</div>
-    </div>
-</div>
-
-{% if err %}
-<div class="card" style="border-color:#fecaca;background:#fef2f2;margin-bottom:16px;">
-    <div style="color:#b91c1c;font-size:13px;line-height:1.5;">
-        <strong>Sesi tidak tersimpan:</strong>
-        {% if err == 'account' %}Nomor XL tidak ditemukan.
-        {% elif err == 'role' %}Akun ini bukan milik pengguna biasa.
-        {% elif err == 'token' %}Akun ini tidak punya refresh token XL — login ulang user via OTP dulu.
-        {% elif err == 'mismatch' %}Nomor tidak cocok dengan pengguna yang dipilih.
-        {% else %}Terjadi kesalahan. Coba lagi.
-        {% endif %}
-    </div>
-</div>
-{% elif ok %}
-<div class="card" style="border-color:#bbf7d0;background:#f0fdf4;margin-bottom:16px;">
-    <div style="color:#166534;font-size:13px;">Sesi XL tersimpan.</div>
-</div>
-{% endif %}
-
-<div class="card" style="margin-bottom:16px;">
-    <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4361ee" stroke-width="2" style="margin-top:1px;flex-shrink:0;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-        <div>
-            <div style="font-weight:600;font-size:14px;">Sesi XL untuk memuat katalog</div>
-            <div class="price-hint">Dipakai oleh: Browse Atur Paket XL, tambah decoy, dan harga live.</div>
-        </div>
-    </div>
-    <form method="POST" action="/prices-xl/login-xl/select" id="sesi-form">
-        <div class="xl-sess-grid">
-            <label style="display:flex;flex-direction:column;gap:6px;">
-                <span class="price-hint" style="font-weight:600;">Pengguna</span>
-                <div class="combo-wrap">
-                    <input type="text" id="user-combo" class="form-control" autocomplete="off"
-                           placeholder="Ketik nama pengguna…"
-                           value="{{ admin_active_username or '' }}">
-                    <span class="combo-caret"></span>
-                    <div id="user-suggest" class="combo-suggest" hidden></div>
-                    <input type="hidden" id="user-combo-val" name="username" value="{{ admin_active_username or '' }}">
-                </div>
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;">
-                <span class="price-hint" style="font-weight:600;">Nomor (label)</span>
-                <div class="select-wrap">
-                    <div class="select-trigger" id="acct-trigger" tabindex="0" role="listbox" aria-label="Nomor (label)">
-                        <span class="select-trigger-label" id="acct-trigger-label">-- pilih nomor --</span>
-                        <span class="combo-caret"></span>
-                    </div>
-                    <div id="acct-suggest" class="combo-suggest" hidden></div>
-                    <select name="account_id" id="acct-select" class="form-control" hidden><option value="">-- pilih nomor --</option>{% for g in admin_acct_groups %}{% for acc in g.accounts %}<option value="{{ acc.id }}" {{ 'selected' if admin_active_account_id == acc.id }} data-user="{{ g.username }}">{{ acc.label }}{% if acc.phone_number %} ({{ acc.phone_number }}){% endif %}</option>{% endfor %}{% endfor %}</select>
-                </div>
-            </label>
-            <button type="submit" class="btn btn-sm btn-primary" style="padding:10px 22px;">Simpan</button>
-        </div>
-    </form>
-    {% if admin_xl_phone %}
-    <div style="margin-top:12px;display:inline-flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:8px 12px;font-size:13px;">
-        <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;"></span>
-        Sesi aktif: <strong>{{ admin_xl_label or admin_xl_phone }}</strong>{% if admin_xl_label %} ({{ admin_xl_phone }}){% endif %}
-        <form method="POST" action="/prices-xl/login-xl/logout" style="margin:0;display:inline;">
-            <button type="submit" class="btn btn-outline btn-sm" style="margin-left:8px;padding:4px 10px;">Ganti sesi</button>
-        </form>
-    </div>
-    {% else %}
-    <div style="margin-top:12px;color:#6b7280;font-size:13px;">Belum ada sesi XL aktif.</div>
-    {% endif %}
-</div>
-
-<a href="/admin/dashboard" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Dashboard</a>
 
 {% endblock %}
