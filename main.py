@@ -813,11 +813,15 @@ def _wipe_decoys(db=None):
                 pass
 
 
-def _restore_decoys(decoys: dict) -> int:
+def _restore_decoys(decoys: dict, db=None) -> int:
     """Simpan decoy dari backup ke DB (migrasi file legacy → DB juga).
-    decoys = {ptype: [{label, family_code, order}]}. Return jumlah dipasang."""
+    decoys = {ptype: [{label, family_code, order}]}. db (opsional): pakai
+    session pemanggil (restore = satu transaksi; session sendiri di tengah
+    transaksi lain = SQLite locked). Return jumlah dipasang."""
     restored = 0
-    db = next(get_db())
+    own_db = db is None
+    if own_db:
+        db = next(get_db())
     try:
         for ptype in ("qris", "balance"):
             rows = decoys.get(ptype)
@@ -844,9 +848,11 @@ def _restore_decoys(decoys: dict) -> int:
                     label=str(e.get("label") or "")[:100],
                 ))
                 restored += 1
-        db.commit()
+        if own_db:
+            db.commit()
     finally:
-        db.close()
+        if own_db:
+            db.close()
     return restored
 
 
@@ -3414,7 +3420,7 @@ async def admin_restore_upload(
         ))
         price_restored += 1
 
-    decoys_restored = _restore_decoys(valid_decoys) if valid_decoys else 0
+    decoys_restored = _restore_decoys(valid_decoys, db) if valid_decoys else 0
 
     # Registry family dari backup (families.json) — dipulihkan persis.
     families_restored = 0
