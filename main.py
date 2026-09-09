@@ -2778,9 +2778,11 @@ def _load_backup_v3(zf) -> dict | None:
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise ValueError("File settings.json di dalam ZIP tidak valid.")
 
-    decoys_raw = {}
+    decoys_raw = None
     for name in zf.namelist():
         if name.startswith("decoys/") and name.endswith(".json"):
+            if decoys_raw is None:
+                decoys_raw = {}
             parts = name.split("/")
             if len(parts) != 3:
                 continue
@@ -2791,6 +2793,10 @@ def _load_backup_v3(zf) -> dict | None:
                 continue
             if isinstance(cfg, dict):
                 decoys_raw.setdefault(ptype, {})[fname] = cfg
+    if decoys_raw is None and any(n.startswith("decoys/") for n in zf.namelist()):
+        # Backup punya section decoys tapi tanpa file .json (mis. hanya marker
+        # .keep) → berarti backup memang tanpa decoy (authoritative).
+        decoys_raw = {}
 
     data = _norm_backup({
         "version": 3,
@@ -3168,6 +3174,9 @@ async def admin_restore_upload(
     db.query(User).delete(synchronize_session=False)
     db.query(FamilyFee).delete(synchronize_session=False)
     db.query(PackagePrice).delete(synchronize_session=False)
+    if isinstance(data.get("families"), dict):
+        # Backup mengelola registry family → hasil restore identik dengan backup.
+        db.query(XlFamily).delete(synchronize_session=False)
     db.expunge_all()
     with _token_lock:
         _XL_TOKEN_CACHE.clear()
