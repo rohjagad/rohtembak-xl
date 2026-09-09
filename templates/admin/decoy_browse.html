@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Tambah Decoy {{ type_label }} - RohTembak (XL){% endblock %}
+{% block head %}
+<style>
+.decoy-form { display:flex; gap:10px; align-items:flex-end; max-width:560px; }
+.decoy-form label { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:6px; }
+@media (max-width: 560px) {
+    .decoy-form { flex-direction:column; align-items:stretch; }
+    .decoy-form .btn { width:100%; }
+}
+</style>
+{% endblock %}
 {% block content %}
 
 <div class="header-section">
@@ -10,10 +20,10 @@
 </div>
 
 <div class="card" style="margin-bottom:16px;">
-    <form method="GET" action="/admin/decoys/browse" class="price-form" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+    <form method="GET" action="/admin/decoys/browse" class="price-form decoy-form">
         <input type="hidden" name="type" value="{{ type }}">
         {% if name %}<input type="hidden" name="name" value="{{ name }}">{% endif %}
-        <label style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:240px;">
+        <label>
             <span class="price-hint" style="font-weight:600;">Family code</span>
             <input type="text" name="fc" value="{{ fc }}" class="form-control" placeholder="Ketik family code XL" autocomplete="off">
         </label>
