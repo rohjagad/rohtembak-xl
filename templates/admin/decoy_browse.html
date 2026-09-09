@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Tambah Decoy {{ type_label }} - RohTembak (XL){% endblock %}
+{% block content %}
+
+<div class="header-section">
+    <div>
+        <div class="page-title">Tambah Decoy {{ type_label }}</div>
+        <div class="page-subtitle">Ketik family code lalu Browse — pilih paket dari daftar untuk dijadikan decoy {{ 'QRIS' if type == 'qris' else 'pulsa (balance)' }}.</div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+    <form method="GET" action="/admin/decoys/browse" class="price-form" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <input type="hidden" name="type" value="{{ type }}">
+        <label style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:240px;">
+            <span class="price-hint" style="font-weight:600;">Family code</span>
+            <input type="text" name="fc" value="{{ fc }}" class="form-control" placeholder="Ketik family code XL" autocomplete="off">
+        </label>
+        <button type="submit" class="btn btn-sm btn-primary" style="white-space:nowrap;">Browse</button>
+    </form>
+</div>
+
+{% if error %}
+<div class="card" style="border-color:#fde68a;background:#fffbeb;">
+    <div style="color:#a16207;font-size:13px;line-height:1.5;">
+        {{ error }}
+        <a href="/prices-xl" style="display:inline-block;margin-top:10px;color:#1d4ed8;text-decoration:underline;">Pilih pengguna &amp; sesi XL &rarr;</a>
+    </div>
+</div>
+{% endif %}
+
+{% if rows %}
+<div class="card">
+    <h2 style="font-size:16px;margin:0 0 12px;">{{ family_label }}</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Option #</th>
+                <th>Nama Paket</th>
+                <th>Harga API (IDR)</th>
+                <th>Variant</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for it in rows %}
+            <tr>
+                <td data-label="Option #"><strong>#{{ it.number }}</strong></td>
+                <td data-label="Nama">{{ it.name }}</td>
+                <td data-label="Harga API">{{ it.price }}</td>
+                <td data-label="Variant">{{ it.variant_name }}</td>
+                <td>
+                    <form method="POST" action="/admin/decoys/save-from-browse">
+                        <input type="hidden" name="payment_type" value="{{ type }}">
+                        <input type="hidden" name="family_code" value="{{ fc }}">
+                        <input type="hidden" name="family_name" value="{{ family_label }}">
+                        <input type="hidden" name="variant_code" value="{{ it.variant_code }}">
+                        <input type="hidden" name="variant_name" value="{{ it.variant_name }}">
+                        <input type="hidden" name="option_name" value="{{ it.name }}">
+                        <input type="hidden" name="order" value="{{ it.order }}">
+                        <input type="hidden" name="price" value="{{ it.price }}">
+                        <button type="submit" class="btn btn-sm btn-outline">+ Jadikan Decoy</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<a href="/admin/decoys" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Daftar Decoy</a>
+
+{% endblock %}

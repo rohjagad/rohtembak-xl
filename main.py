@@ -955,6 +955,119 @@ def admin_decoy_save(
     return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
 
 
+@app.get("/admin/decoys/new", response_class=HTMLResponse)
+def admin_decoy_new_page(request: Request, type: str = "", user: User = Depends(get_current_user)):
+    """Tambah decoy (qris/balance) — alur browse-only: ketik family code lalu
+    Browse, pilih paket dari daftar (seperti Browse Atur Paket XL). Admin tidak
+    perlu tahu UUID variant/order manual."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    if type not in ("qris", "balance"):
+        type = "qris"
+    return render("admin/decoy_browse.html", context={
+        "request": request,
+        "user": user,
+        "type": type,
+        "type_label": "QRIS" if type == "qris" else "Pulsa",
+        "rows": None,
+        "error": "",
+        "fc": "",
+        "family_label": "",
+    })
+
+
+@app.get("/admin/decoys/browse", response_class=HTMLResponse)
+def admin_decoy_browse_page(request: Request, type: str = "", fc: str = "",
+                            user: User = Depends(get_current_user)):
+    """Hasil Browse family code untuk tambah decoy — daftar paket + tombol
+    'Jadikan Decoy'. Sama seperti Browse Atur Paket XL (live dari API XL)."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    if type not in ("qris", "balance"):
+        return RedirectResponse(url="/admin/decoys", status_code=303)
+    fc = _valid_custom_family_code(fc)
+    rows = None
+    error = ""
+    family_label = ""
+    if fc:
+        tokens = _admin_xl_tokens()
+        if not tokens:
+            error = "Sesi XL admin belum aktif."
+        else:
+            try:
+                data = _custom_fetch_family(tokens, fc)
+            except Exception as e:
+                print(f"[decoy-browse] Error: {e}")
+                data = None
+            if data and data.get("package_variants"):
+                family_label = (data.get("package_family") or {}).get("name") or fc
+                rows = []
+                num = 1
+                for v in data["package_variants"]:
+                    for o in v["package_options"]:
+                        rows.append({
+                            "number": num,
+                            "variant_code": v["package_variant_code"],
+                            "variant_name": v.get("name", ""),
+                            "order": o.get("order", 0),
+                            "name": o.get("name", ""),
+                            "price": o.get("price", 0),
+                        })
+                        num += 1
+            else:
+                error = "Gagal memuat katalog untuk family code tersebut."
+    return render("admin/decoy_browse.html", context={
+        "request": request,
+        "user": user,
+        "type": type,
+        "type_label": "QRIS" if type == "qris" else "Pulsa",
+        "rows": rows,
+        "error": error,
+        "fc": fc,
+        "family_label": family_label,
+    })
+
+
+@app.post("/admin/decoys/save-from-browse")
+def admin_decoy_save_from_browse(
+    payment_type: str = Form(...),
+    family_code: str = Form(""),
+    family_name: str = Form(""),
+    variant_code: str = Form(""),
+    variant_name: str = Form(""),
+    option_name: str = Form(""),
+    order: int = Form(0),
+    price: int = Form(0),
+    user: User = Depends(get_current_user),
+):
+    """Simpan decoy dari pilihan Browse — config dibangun dari baris yang
+    dipilih admin (family/variant/order/price), label = nama paket."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    if payment_type not in ("qris", "balance"):
+        return RedirectResponse(url="/admin/decoys", status_code=303)
+    fc = _valid_custom_family_code(family_code)
+    vc = str(variant_code or "").strip()[:64]
+    name = str(option_name or "").strip()[:200]
+    if not fc or not vc or not name or order < 0:
+        return RedirectResponse(url="/admin/decoys?error=field", status_code=303)
+    from app.service.decoy import save_decoy_config, decoy_slug
+    cfg = {
+        "label": name,
+        "family_name": str(family_name or "").strip()[:200],
+        "family_code": fc,
+        "is_enterprise": False,
+        "migration_type": "NONE",
+        "variant_code": vc,
+        "option_name": name,
+        "order": int(order),
+        "price": max(0, int(price or 0)),
+    }
+    slug = decoy_slug(name) or "decoy"
+    save_decoy_config(payment_type, slug, cfg)
+    return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
+
+
 @app.post("/admin/decoys/delete")
 def admin_decoy_delete(
     payment_type: str = Form(...),
