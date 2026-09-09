@@ -30,7 +30,7 @@ function decoyLoadOptions() {
       if (hint) hint.textContent = '';
       res.items.forEach(function(it) {
         var o = document.createElement('option');
-        o.value = it.variant_code + '|' + it.order;
+        o.value = it.variant_code + '|' + it.order + '|' + it.price;
         o.textContent = it.variant_name + ' · ' + it.name + ' · ' + it.price + ' IDR';
         pkg.appendChild(o);
       });
@@ -56,7 +56,7 @@ function decoyFill() {
     variant_code: parts[0],
     option_name: label,
     order: parseInt(parts[1], 10) || 0,
-    price: 1000
+    price: parseInt(parts[2], 10) || 0
   };
   document.getElementById('decoy-data').value = JSON.stringify(cfg, null, 2);
   var lbl = document.getElementById('decoy-label');
