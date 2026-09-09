@@ -867,7 +867,40 @@ def admin_decoy_form_page(request: Request, user: User = Depends(get_current_use
         "original": original if mode == "edit" else "",
         "label": label,
         "data_text": data_text,
+        "families": [{"key": k, "label": v["label"], "family_code": v["family_code"]}
+                     for k, v in sorted(_family_registry().items(), key=lambda kv: kv[1]["sort"])],
     })
+
+
+@app.get("/admin/decoys/family-options")
+def admin_decoy_family_options(family_key: str = "", user: User = Depends(get_current_user)):
+    """Opsi paket (variant_code + order + harga) satu family — dipakai form decoy
+    supaya admin TIDAK perlu tahu UUID family/variant manual. Butuh sesi XL admin."""
+    if user.role != "admin":
+        return JSONResponse({"ok": False, "error": "Akses ditolak"}, status_code=403)
+    reg = _family_registry()
+    cfg = reg.get(family_key.strip())
+    if not cfg:
+        return JSONResponse({"ok": False, "error": "Family tidak ditemukan."}, status_code=404)
+    tokens = _admin_xl_tokens()
+    if not tokens:
+        return JSONResponse({"ok": False, "error": "Sesi XL admin belum aktif — pilih pengguna & nomor di Atur Paket XL dulu."}, status_code=400)
+    is_ent, mig = _family_api_params(cfg["family_code"])
+    _api_delay()
+    data = xl_get_family(API_KEY, tokens, cfg["family_code"], is_enterprise=is_ent, migration_type=mig)
+    if not (data and data.get("package_variants")):
+        return JSONResponse({"ok": False, "error": "Gagal memuat katalog family."}, status_code=502)
+    items = []
+    for v in data["package_variants"]:
+        for o in v["package_options"]:
+            items.append({
+                "variant_code": v["package_variant_code"],
+                "variant_name": v.get("name", ""),
+                "order": o.get("order", 0),
+                "name": o.get("name", ""),
+                "price": o.get("price", 0),
+            })
+    return JSONResponse({"ok": True, "items": items})
 
 
 @app.post("/admin/decoys/save")

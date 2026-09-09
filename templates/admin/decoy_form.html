@@ -14,6 +14,55 @@ function slugPreview() {
   var s = (v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   document.getElementById('decoy-slug-out').textContent = (s || '->') + '.json';
 }
+function decoyLoadOptions() {
+  var sel = document.getElementById('decoy-family');
+  var pkg = document.getElementById('decoy-pkg');
+  var hint = document.getElementById('decoy-pkg-hint');
+  pkg.innerHTML = '';
+  pkg.disabled = true;
+  var fk = sel.value;
+  if (!fk) { if (hint) hint.textContent = ''; return; }
+  if (hint) hint.textContent = 'Memuat paket...';
+  fetch('/admin/decoys/family-options?family_key=' + encodeURIComponent(fk), { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (!res.ok) { if (hint) hint.textContent = res.error || 'Gagal memuat.'; return; }
+      if (hint) hint.textContent = '';
+      res.items.forEach(function(it) {
+        var o = document.createElement('option');
+        o.value = it.variant_code + '|' + it.order;
+        o.textContent = it.variant_name + ' · ' + it.name + ' · ' + it.price + ' IDR';
+        pkg.appendChild(o);
+      });
+      pkg.disabled = false;
+    })
+    .catch(function() { if (hint) hint.textContent = 'Gagal terhubung.'; });
+}
+function decoyFill() {
+  var sel = document.getElementById('decoy-family');
+  var pkg = document.getElementById('decoy-pkg');
+  var hint = document.getElementById('decoy-pkg-hint');
+  if (!sel.value || !pkg.value) { if (hint) hint.textContent = 'Pilih family & paket dulu.'; return; }
+  var parts = pkg.value.split('|');
+  var opt = pkg.options[pkg.selectedIndex];
+  var label = (opt.textContent || '').split(' · ')[1] || '';
+  var famName = sel.options[sel.selectedIndex].textContent;
+  var cfg = {
+    label: label || 'Decoy',
+    family_name: famName,
+    family_code: sel.value,
+    is_enterprise: false,
+    migration_type: 'NONE',
+    variant_code: parts[0],
+    option_name: label,
+    order: parseInt(parts[1], 10) || 0,
+    price: 1000
+  };
+  document.getElementById('decoy-data').value = JSON.stringify(cfg, null, 2);
+  var lbl = document.getElementById('decoy-label');
+  if (!lbl.value) { lbl.value = label || 'Decoy'; slugPreview(); }
+  if (hint) hint.textContent = 'JSON terisi — cek & simpan.';
+}
 </script>
 {% endblock %}
 {% block content %}
@@ -40,11 +89,29 @@ function slugPreview() {
             </label>
         </div>
 
+        <div style="margin-bottom:16px;padding:14px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc;">
+            <div class="field-label" style="margin-bottom:8px;">Isi otomatis dari family &amp; paket (disarankan)</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <select id="decoy-family" class="form-control" style="flex:1;min-width:180px;" onchange="decoyLoadOptions()">
+                    <option value="">-- pilih family --</option>
+                    {% for f in families %}
+                    <option value="{{ f.family_code }}">{{ f.label }}</option>
+                    {% endfor %}
+                </select>
+                <select id="decoy-pkg" class="form-control" style="flex:2;min-width:220px;" disabled></select>
+                <button type="button" class="btn btn-sm btn-outline" onclick="decoyFill()" style="white-space:nowrap;">Isi JSON</button>
+            </div>
+            <div id="decoy-pkg-hint" style="font-size:11.5px;color:#6b7280;margin-top:6px;">Butuh sesi XL admin aktif untuk memuat paket.</div>
+        </div>
+
         <div style="margin-bottom:16px;">
             <label style="display:flex;flex-direction:column;gap:6px;">
                 <span class="field-label">Isi JSON config</span>
-                <textarea name="data" class="form-control decoy-textarea" required>{{ data_text }}</textarea>
+                <textarea id="decoy-data" name="data" class="form-control decoy-textarea" required>{{ data_text }}</textarea>
             </label>
+            <div style="font-size:11.5px;color:#b91c1c;margin-top:6px;">
+                Wajib: <strong>family_code</strong> &amp; <strong>variant_code</strong> — kosong = tidak tersimpan.
+            </div>
         </div>
 
         <div style="display:flex;gap:8px;align-items:center;">
