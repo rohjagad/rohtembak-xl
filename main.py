@@ -782,14 +782,19 @@ def _list_decoys(payment_type: str) -> list[dict]:
     } for row in _decoy_rows(payment_type)]
 
 
-def _wipe_decoys():
-    """Hapus semua decoy di DB (qris & balance) + file legacy (migrasi)."""
-    db = next(get_db())
-    try:
+def _wipe_decoys(db=None):
+    """Hapus semua decoy di DB (qris & balance) + file legacy (migrasi).
+    db (opsional): pakai session pemanggil (dipakai restore agar satu
+    transaksi — session sendiri di tengah transaksi lain = SQLite locked)."""
+    if db is not None:
         db.query(Decoy).delete(synchronize_session=False)
-        db.commit()
-    finally:
-        db.close()
+    else:
+        d2 = next(get_db())
+        try:
+            d2.query(Decoy).delete(synchronize_session=False)
+            d2.commit()
+        finally:
+            d2.close()
     from app.service.decoy import decoy_type_dir, DECOY_DATA_DIR
     for ptype in ("qris", "balance"):
         dirpath = decoy_type_dir(ptype)
@@ -3302,7 +3307,7 @@ async def admin_restore_upload(
     with _token_lock:
         _XL_TOKEN_CACHE.clear()
     if valid_decoys is not None:
-        _wipe_decoys()
+        _wipe_decoys(db)
     # account_id sesi kurasi menunjuk id XLAccount lama yang sudah terhapus
     # & nomor barunya bisa berbeda — paksa admin pilih ulang sesi.
     _admin_xl_clear()
