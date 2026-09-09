@@ -1233,6 +1233,47 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
     })
 
 
+@app.get("/admin/sesi-xl", response_class=HTMLResponse)
+def admin_sesi_xl_page(request: Request, user: User = Depends(get_current_user)):
+    """Sesi XL admin — halaman mandiri (menu admin): pilih pengguna & nomor
+    yang dipakai untuk katalog/harga, terpisah dari Atur Paket XL."""
+    if user.role != "admin":
+        return RedirectResponse(url="/user/dashboard", status_code=303)
+    admin_sess = _admin_xl_read()
+    admin_acct_groups = []
+    db2 = next(get_db())
+    try:
+        for u in db2.query(User).filter(User.role == "user").order_by(User.username).all():
+            accts = [a for a in u.xl_accounts if a.phone_number]
+            if accts:
+                admin_acct_groups.append({
+                    "username": u.username,
+                    "accounts": [{
+                        "id": a.id,
+                        "label": a.label or f"Nomor {a.phone_number}",
+                        "phone_number": a.phone_number,
+                    } for a in accts],
+                })
+    finally:
+        db2.close()
+    admin_active_username = None
+    if admin_sess and admin_sess.get("account_id"):
+        for g in admin_acct_groups:
+            for a in g["accounts"]:
+                if a["id"] == admin_sess.get("account_id"):
+                    admin_active_username = g["username"]
+                    break
+    return render("admin/sesi_xl.html", context={
+        "request": request,
+        "user": user,
+        "admin_acct_groups": admin_acct_groups,
+        "admin_active_account_id": (admin_sess or {}).get("account_id"),
+        "admin_active_username": admin_active_username,
+        "admin_xl_label": admin_sess.get("label") if admin_sess else None,
+        "admin_xl_phone": admin_sess.get("phone_number") if admin_sess else None,
+    })
+
+
 @app.get("/prices-xl-custom", response_class=HTMLResponse)
 def admin_prices_xl_custom_page(request: Request, user: User = Depends(get_current_user)):
     if user.role != "admin":
@@ -4658,9 +4699,11 @@ def _resolve_custom_fc(fc: str, pin: int = 0) -> str | None:
 
 
 def _custom_fetch_family(tokens, family_code):
-    """Katalog satu family code bebas (enterprise/migration dari API)."""
-    is_ent, mig = _family_api_params(family_code)
-    return xl_get_family(API_KEY, tokens, family_code, is_enterprise=is_ent, migration_type=mig)
+    """Katalog satu family code bebas. is_enterprise/migration_type = None →
+    get_family mencoba SEMUA kombinasi (NONE/PRE_TO_PRIOH/PRIOH_TO_PRIO/
+    PRIO_TO_PRIOH x enterprise) — family apa pun (PRIO, conference, dll) bisa
+    terbaca, bukan hanya default (False, NONE)."""
+    return xl_get_family(API_KEY, tokens, family_code, is_enterprise=None, migration_type=None)
 
 
 def _custom_browse_items(tokens, family_code):

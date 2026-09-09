@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block title %}Sesi XL Admin - RohTembak (XL){% endblock %}
+{% block head %}
+<style>
+.combo-wrap { position: relative; }
+.combo-wrap .form-control { width: 100% !important; box-sizing: border-box; padding-right: 32px; }
+.combo-caret {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 6px solid #6b7280; pointer-events: none;
+}
+.select-wrap { position: relative; }
+.select-trigger {
+  width: 100%; box-sizing: border-box; padding: 10px 34px 10px 14px;
+  border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+  background: #fff; cursor: pointer; transition: border-color .2s, box-shadow .2s;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.select-trigger:hover { border-color: #c7d2fe; }
+.select-trigger:focus { outline: none; border-color: #4361ee; box-shadow: 0 0 0 3px rgba(67,97,238,.1); }
+.select-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-suggest {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
+  margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15,23,42,.12); max-height: 220px; overflow-y: auto;
+}
+.combo-item { padding: 9px 12px; cursor: pointer; font-size: 13.5px; }
+.combo-item + .combo-item { border-top: 1px solid #f1f5f9; }
+.combo-item.active { background: #eef2ff; }
+.combo-empty { padding: 10px 12px; color: #9ca3af; font-size: 13px; }
+.xl-sess-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+@media (max-width: 700px) { .xl-sess-grid { grid-template-columns: 1fr; } .xl-sess-grid .btn { width: 100%; } }
+</style>
+<script>
+(function () {
+// Pengguna -> combobox bisa diketik (banyak user); Nomor (label) -> dropdown biasa
+  var userCombo = document.getElementById("user-combo");
+  var userSuggest = document.getElementById("user-suggest");
+  var userVal = document.getElementById("user-combo-val");
+  var acctSel = document.getElementById("acct-select");
+  var acctTrigger = document.getElementById("acct-trigger");
+  var acctSuggest = document.getElementById("acct-suggest");
+  var acctLabel = document.getElementById("acct-trigger-label");
+  var USERS = [];
+  {% for g in admin_acct_groups %}
+  USERS.push({{ g.username | tojson }});
+  {% endfor %}
+
+  function acctText(o) { return o.text; }
+  function filterAccts(user) {
+    Array.prototype.forEach.call(acctSel.options, function (o) {
+      o.hidden = o.value && o.dataset.user !== user;
+    });
+    if (!acctSuggest.hidden) renderAcctPanel();
+  }
+  function renderAcctPanel() {
+    acctSuggest.innerHTML = "";
+    var seen = false;
+    Array.prototype.forEach.call(acctSel.options, function (o) {
+      if (o.hidden) return;
+      var d = document.createElement("div");
+      d.className = "combo-item" + (o.selected ? " active" : "");
+      d.textContent = acctText(o);
+      d.title = acctText(o);
+      function doPick(ev) {
+        if (ev) ev.preventDefault();
+        acctSel.value = o.value;
+        acctLabel.textContent = acctText(o);
+        acctSuggest.hidden = true;
+        Array.prototype.forEach.call(acctSuggest.children, function (c) { c.classList.remove("active"); });
+        d.classList.add("active");
+      }
+      d.addEventListener("mousedown", doPick);
+      d.addEventListener("click", doPick);
+      acctSuggest.appendChild(d);
+      seen = true;
+    });
+    if (!seen) acctSuggest.innerHTML = '<div class="combo-empty">Tidak ada nomor</div>';
+  }
+  function syncAcctLabel() {
+    var o = acctSel.options[acctSel.selectedIndex];
+    acctLabel.textContent = o ? acctText(o) : "-- pilih nomor --";
+  }
+  if (acctTrigger && acctSuggest && acctSel) {
+    acctTrigger.addEventListener("click", function () {
+      if (acctSuggest.hidden) { renderAcctPanel(); acctSuggest.hidden = false; }
+      else acctSuggest.hidden = true;
+    });
+    acctTrigger.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { acctSuggest.hidden = true; return; }
+      if (e.key === "Enter" || e.key === "ArrowDown") {
+        if (acctSuggest.hidden) { renderAcctPanel(); acctSuggest.hidden = false; }
+        e.preventDefault();
+      }
+    });
+    document.addEventListener("click", function (e) {
+      if (acctTrigger.closest(".select-wrap") && !acctTrigger.closest(".select-wrap").contains(e.target)) acctSuggest.hidden = true;
+    });
+    syncAcctLabel();
+  }
+  function topUser(q) {
+    var t = (q || "").trim().toLowerCase();
+    if (!t) return "";
+    var exact = USERS.filter(function (u) { return u.toLowerCase() === t; })[0];
+    if (exact) return exact;
+    var prefix = USERS.filter(function (u) { return u.toLowerCase().indexOf(t) === 0; })[0];
+    if (prefix) return prefix;
+    return USERS.filter(function (u) { return u.toLowerCase().indexOf(t) > 0; })[0] || "";
+  }
+  function renderUsers(list, q) {
+    userSuggest.innerHTML = "";
+    if (!list.length) {
+      userSuggest.innerHTML = '<div class="combo-empty">Pengguna tidak ditemukan</div>';
+    } else {
+      list.forEach(function (u, i) {
+        var d = document.createElement("div");
+        d.className = "combo-item" + (i === 0 ? " active" : "");
+        var lab = document.createElement("span");
+        lab.textContent = u;
+        d.appendChild(lab);
+        function doPick(ev) {
+          if (ev) ev.preventDefault();
+          pickUser(u);
+        }
+        d.addEventListener("mousedown", doPick);
+        d.addEventListener("click", doPick);
+        userSuggest.appendChild(d);
+      });
+    }
+  }
+  function pickUser(u) {
+    userCombo.value = u;
+    userVal.value = u;
+    userSuggest.hidden = true;
+    filterAccts(u);
+    if (acctSel.selectedIndex !== 0) {
+      var selOpt = acctSel.options[acctSel.selectedIndex];
+      if (selOpt.dataset.user !== u) acctSel.value = "";
+    }
+    syncAcctLabel();
+  }
+  function userMatches(u, q) {
+    return u.toLowerCase().indexOf(q) >= 0;
+  }
+  if (userCombo && acctSel) {
+    var sesiForm = document.getElementById("sesi-form");
+    if (sesiForm) {
+      sesiForm.addEventListener("submit", function () {
+        var m = topUser(userCombo.value);
+        if (m) { userCombo.value = m; userVal.value = m; }
+        if (acctSel.selectedIndex !== 0) {
+          var selOpt = acctSel.options[acctSel.selectedIndex];
+          if (selOpt.dataset.user !== userVal.value) acctSel.value = "";
+        }
+      });
+    }
+    userCombo.addEventListener("focus", function () {
+      var q = userCombo.value.trim().toLowerCase();
+      renderUsers(USERS.filter(function (u) { return userMatches(u, q); }), q);
+      userSuggest.hidden = false;
+    });
+    userCombo.addEventListener("input", function () {
+      var q = userCombo.value.trim().toLowerCase();
+      renderUsers(USERS.filter(function (u) { return userMatches(u, q); }), q);
+      userSuggest.hidden = false;
+      filterAccts(topUser(userCombo.value));
+    });
+    userCombo.addEventListener("blur", function () {
+      setTimeout(function () {
+        var match = topUser(userCombo.value);
+        if (match) { userCombo.value = match; userVal.value = match; }
+        userSuggest.hidden = true;
+      }, 120);
+    });
+    userCombo.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        var q = userCombo.value.trim().toLowerCase();
+        var t = USERS.filter(function (u) { return userMatches(u, q); })[0];
+        if (t) { pickUser(t); }
+        e.preventDefault();
+      } else if (e.key === "Escape") {
+        userSuggest.hidden = true;
+      }
+    });
+    document.addEventListener("click", function (e) {
+      if (userCombo.closest(".combo-wrap") && !userCombo.closest(".combo-wrap").contains(e.target)) userSuggest.hidden = true;
+    });
+    var initialUser = "{{ admin_active_username or '' }}";
+    if (initialUser) filterAccts(initialUser);
+    else filterAccts("");
+  }
+})();
+</script>
+{% endblock %}
+{% block content %}
+
+<div class="header-section">
+    <div>
+        <div class="page-title">Sesi XL Admin</div>
+        <div class="page-subtitle">Pilih pengguna lalu nomor (label) yang dipakai proses katalog &amp; harga (browse, decoy, Atur Paket XL).</div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4361ee" stroke-width="2" style="margin-top:1px;flex-shrink:0;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+        <div>
+            <div style="font-weight:600;font-size:14px;">Sesi XL untuk memuat katalog</div>
+            <div class="price-hint">Dipakai oleh: Browse Atur Paket XL, tambah decoy, dan harga live.</div>
+        </div>
+    </div>
+    <form method="POST" action="/prices-xl/login-xl/select" id="sesi-form">
+        <div class="xl-sess-grid">
+            <label style="display:flex;flex-direction:column;gap:6px;">
+                <span class="price-hint" style="font-weight:600;">Pengguna</span>
+                <div class="combo-wrap">
+                    <input type="text" id="user-combo" class="form-control" autocomplete="off"
+                           placeholder="Ketik nama pengguna…"
+                           value="{{ admin_active_username or '' }}">
+                    <span class="combo-caret"></span>
+                    <div id="user-suggest" class="combo-suggest" hidden></div>
+                    <input type="hidden" id="user-combo-val" name="username" value="{{ admin_active_username or '' }}">
+                </div>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;">
+                <span class="price-hint" style="font-weight:600;">Nomor (label)</span>
+                <div class="select-wrap">
+                    <div class="select-trigger" id="acct-trigger" tabindex="0" role="listbox" aria-label="Nomor (label)">
+                        <span class="select-trigger-label" id="acct-trigger-label">-- pilih nomor --</span>
+                        <span class="combo-caret"></span>
+                    </div>
+                    <div id="acct-suggest" class="combo-suggest" hidden></div>
+                    <select name="account_id" id="acct-select" class="form-control" hidden><option value="">-- pilih nomor --</option>{% for g in admin_acct_groups %}{% for acc in g.accounts %}<option value="{{ acc.id }}" {{ 'selected' if admin_active_account_id == acc.id }} data-user="{{ g.username }}">{{ acc.label }}{% if acc.phone_number %} ({{ acc.phone_number }}){% endif %}</option>{% endfor %}{% endfor %}</select>
+                </div>
+            </label>
+            <button type="submit" class="btn btn-sm btn-primary" style="padding:10px 22px;">Simpan</button>
+        </div>
+    </form>
+    {% if admin_xl_phone %}
+    <div style="margin-top:12px;display:inline-flex;align-items:center;gap:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;border-radius:8px;padding:8px 12px;font-size:13px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;"></span>
+        Sesi aktif: <strong>{{ admin_xl_label or admin_xl_phone }}</strong>{% if admin_xl_label %} ({{ admin_xl_phone }}){% endif %}
+        <form method="POST" action="/prices-xl/login-xl/logout" style="margin:0;display:inline;">
+            <button type="submit" class="btn btn-outline btn-sm" style="margin-left:8px;padding:4px 10px;">Ganti sesi</button>
+        </form>
+    </div>
+    {% else %}
+    <div style="margin-top:12px;color:#6b7280;font-size:13px;">Belum ada sesi XL aktif.</div>
+    {% endif %}
+</div>
+
+<a href="/admin/dashboard" class="btn btn-outline btn-sm" style="margin-top:20px;">&larr; Kembali ke Dashboard</a>
+
+{% endblock %}
