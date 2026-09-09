@@ -137,6 +137,10 @@ function makeCombo(inputId, suggestId) {
   var input = document.getElementById(inputId);
   var suggest = document.getElementById(suggestId);
   if (!input || !suggest) return null;
+  function setHidden(v) {
+    var h = document.getElementById(inputId.replace('-user', '-user-id'));
+    if (h) h.value = USER_IDS[(v || '').trim()] || '';
+  }
   function hits(q) {
     if (!q) return [];
     var all = USERS.filter(function (u) { return u.toLowerCase().indexOf(q) > -1; });
@@ -184,7 +188,7 @@ function makeCombo(inputId, suggestId) {
   input.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
       var t = topName(input.value.trim().toLowerCase());
-      if (t) input.value = t;
+      if (t) { input.value = t; setHidden(t); }
       suggest.hidden = true;
       e.preventDefault();
     } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -196,6 +200,7 @@ function makeCombo(inputId, suggestId) {
       var next = e.key === 'ArrowDown' ? (cur + 1) % items.length : (cur - 1 + items.length) % items.length;
       Array.prototype.forEach.call(items, function (c, i) { c.classList.toggle('active', i === next); });
       input.value = items[next].textContent;
+      setHidden(items[next].textContent);
     } else if (e.key === 'Escape') {
       suggest.hidden = true;
     }

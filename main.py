@@ -944,6 +944,17 @@ _admin_name_cache: dict = {}
 _admin_name_prev: dict = {}
 
 
+def _prune_mem_cache(cache: dict, max_entries: int = 200):
+    """Buang entri kedaluwarsa + batasi ukuran cache memori (anti rembesan
+    tak terbatas saat admin gonta-ganti sesi akun)."""
+    now = time.time()
+    for k in [k for k, (_, ts) in cache.items() if ts <= now]:
+        cache.pop(k, None)
+    if len(cache) > max_entries:
+        for k in sorted(cache, key=lambda k: cache[k][1])[: len(cache) - max_entries]:
+            cache.pop(k, None)
+
+
 def _admin_family_name_map(acct_key, family_key, fam_code, tokens):
     """Map option number -> {name,label,size,price} utk render /prices-xl.
 
@@ -970,6 +981,10 @@ def _admin_family_name_map(acct_key, family_key, fam_code, tokens):
         m = {it["number"]: it for it in items}
         _admin_name_cache[ck] = (m, now + _DECOY_PRICE_TTL)
         _admin_name_prev[ck] = m
+        _prune_mem_cache(_admin_name_cache)
+        if len(_admin_name_prev) > 200:
+            for k in list(_admin_name_prev)[: len(_admin_name_prev) - 200]:
+                _admin_name_prev.pop(k, None)
         return m
     prev = _admin_name_prev.get(ck)
     return prev if isinstance(prev, dict) else {}
@@ -5075,10 +5090,15 @@ def _append_decoy_item(items, tokens, payment_type="balance", name="default"):
 def _friendly_settle_msg(msg, default="Pembayaran gagal."):
     """Terjemahkan pesan penolakan jumlah dari API XL jadi bahasa Indonesia
     yang jelas. Pola TUI: 'harga yang benar adalah XXXX'. Strict — tidak
-    auto-correct; hanya memberi tahu jumlah valid yang diminta XL."""
+    auto-correct; hanya memberi tahu jumlah valid yang diminta XL. Hanya
+    angka yang MENGIKUTI penanda 'valid/correct' yang diambil (bukan angka
+    nominal yang ditolak)."""
     raw = str(msg or "")
-    m = re.search(r"valid\s+(?:payment\s+)?amount\s+is\s+([\d.,]+)", raw, re.IGNORECASE) \
-        or re.search(r"(?:not\s+valid|invalid)[^.]*?([\d.,]+)", raw, re.IGNORECASE)
+    m = (
+        re.search(r"valid\s+(?:payment\s+)?amount\s+is\s+([\d.,]+)", raw, re.IGNORECASE)
+        or re.search(r"(?:valid|correct|right)\s+(?:payment\s+)?amount\s+(?:is|should\s+be)\s+([\d.,]+)", raw, re.IGNORECASE)
+        or re.search(r"(?:correct\s+amount|amount\s+should\s+be|harga\s+yang\s+benar)\s*(?:is|=|:)?\s*([\d.,]+)", raw, re.IGNORECASE)
+    )
     if m:
         try:
             valid = int(m.group(1).replace(".", "").replace(",", ""))
@@ -5351,6 +5371,7 @@ def _qris_decoy_price(active_xl=None, name="default"):
                 if item:
                     price = int(item["item_price"] or 0)
                     _decoy_price_cache[cache_key] = (price, time.time() + _DECOY_PRICE_TTL)
+                    _prune_mem_cache(_decoy_price_cache)
                     return price
     except Exception:
         pass

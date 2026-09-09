@@ -113,7 +113,7 @@ var DETAIL_CACHE_NAME = 'beli-paket-detail';
 var DETAIL_CACHE_TTL = 570;
 var DETAIL_CACHE_META_TTL = 570;
 var DETAIL_STREAM_URL = '/user/xl/beli-paket/detail-stream?family=' + encodeURIComponent(DETAIL_FAMILY) + '&n=' + DETAIL_N + '&families=';
-var XL_ID = "{{ active_xl.phone_number if active_xl else '' }}";
+var XL_ID = "{{ user.id if user else '' }}-{{ active_xl.phone_number if active_xl else '' }}";
 var DETAIL_CACHE_META = new Request('/beli-paket-detail/' + XL_ID + '/meta');
 var DETAIL_CACHE_REQ = new Request('/beli-paket-detail/' + XL_ID + '/' + DETAIL_FAMILY + '-' + DETAIL_N);
 
