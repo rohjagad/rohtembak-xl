@@ -361,8 +361,10 @@ function closeQrisClosedModal() {
 
       <div class="form-group">
         <label for="topup-amount" style="font-size:.82rem;font-weight:600;color:#374151;">Atau ketik nominal sendiri</label>
-        {# PERINGATAN: nominal topup bebas (bukan kelipatan 1000) — server terima int apa pun dalam rentang min/max; JANGAN step="1000" #}
-        <input type="number" id="topup-amount" class="form-control" min="{{ topup_min }}" max="{{ topup_max }}" step="1"
+        {# PERINGATAN: topup QRIS sengaja kelipatan 1000 (kebijakan bisnis) — server
+           juga membatasi (min/max), tapi JANGAN ubah ke step=1 tanpa persetujuan.
+           Berbeda dengan FEE ADMIN yang boleh nominal bebas (step=1). #}
+        <input type="number" id="topup-amount" class="form-control" min="{{ topup_min }}" max="{{ topup_max }}" step="1000"
                placeholder="Contoh: 25000" oninput="updateSummary()" style="margin-top:6px;">
         <div style="font-size:.72rem;color:#9ca3af;margin-top:4px;">Min {{ topup_min|rupiah }} &middot; Maks {{ topup_max|rupiah }} IDR</div>
       </div>
