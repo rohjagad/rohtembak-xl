@@ -1271,6 +1271,8 @@ def admin_sesi_xl_page(request: Request, user: User = Depends(get_current_user))
         "admin_active_username": admin_active_username,
         "admin_xl_label": admin_sess.get("label") if admin_sess else None,
         "admin_xl_phone": admin_sess.get("phone_number") if admin_sess else None,
+        "err": request.query_params.get("err", ""),
+        "ok": request.query_params.get("ok", ""),
     })
 
 
@@ -1788,22 +1790,28 @@ def admin_prices_xl_login_select(
     if not account_id:
         # Kosong (pilih pengguna / pilih nomor) → set sesi admin XL jadi kosong.
         _admin_xl_clear()
-        return RedirectResponse(url="/prices-xl", status_code=303)
+        return RedirectResponse(url="/prices-xl/login-xl/select", status_code=303)
     try:
         account_id = int(account_id)
     except ValueError:
-        return RedirectResponse(url="/prices-xl", status_code=303)
+        return RedirectResponse(url="/admin/sesi-xl?err=account", status_code=303)
     db = next(get_db())
     try:
         acct = db.query(XLAccount).options(joinedload(XLAccount.user)).filter(XLAccount.id == account_id).first()
         # Validasi: hanya akun milik user biasa yang punya refresh_token; dan
         # kalau admin pilih pengguna, nomor harus milik pengguna itu.
-        if not acct or acct.user is None or acct.user.role != "user" or not acct.refresh_token:
+        if not acct:
             _admin_xl_clear()
-            return RedirectResponse(url="/prices-xl", status_code=303)
+            return RedirectResponse(url="/admin/sesi-xl?err=account", status_code=303)
+        if acct.user is None or acct.user.role != "user":
+            _admin_xl_clear()
+            return RedirectResponse(url="/admin/sesi-xl?err=role", status_code=303)
+        if not acct.refresh_token:
+            _admin_xl_clear()
+            return RedirectResponse(url="/admin/sesi-xl?err=token", status_code=303)
         if username and acct.user.username != username:
             _admin_xl_clear()
-            return RedirectResponse(url="/prices-xl", status_code=303)
+            return RedirectResponse(url="/admin/sesi-xl?err=mismatch", status_code=303)
         _admin_xl_write({
             "account_id": acct.id,
             "phone_number": acct.phone_number,
@@ -1811,7 +1819,7 @@ def admin_prices_xl_login_select(
         })
     finally:
         db.close()
-    return RedirectResponse(url="/prices-xl", status_code=303)
+    return RedirectResponse(url="/admin/sesi-xl?ok=1", status_code=303)
 
 
 @app.post("/prices-xl/login-xl/logout")
