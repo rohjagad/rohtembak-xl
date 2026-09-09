@@ -2956,7 +2956,17 @@ def _apply_restore_settings(valid_settings: dict) -> list:
 
     cb = valid_settings.get("custom_buy")
     if isinstance(cb, dict):
-        _custom_buy_write(cb.get("pins") or [])
+        # Format lama: hanya family_code top-level (tanpa pins) — samakan
+        # dengan normalisasi _custom_buy_read supaya tidak hilang saat restore.
+        cb_pins = cb.get("pins") or []
+        if not cb_pins and _valid_custom_family_code(str(cb.get("family_code") or "")):
+            cb_pins = [{"label": CUSTOM_BUY_LABEL_DEFAULT,
+                        "family_code": str(cb.get("family_code") or "")}]
+        _custom_buy_write(
+            cb_pins,
+            browse_fee_pulsa=_clamp_custom_fee(cb.get("browse_fee_pulsa")),
+            browse_fee_qris=_clamp_custom_fee(cb.get("browse_fee_qris")),
+        )
         applied.append("Beli Paket Custom")
 
     if touched_state:
