@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session, joinedload
 from jinja2 import Environment, FileSystemLoader
 
 from database import init_db, get_db
-from models import User, XLAccount, Balance, BalanceTransaction, FamilyFee, TopupTransaction, PackagePrice, XlFamily
+from models import User, XLAccount, Balance, BalanceTransaction, FamilyFee, TopupTransaction, PackagePrice, XlFamily, Decoy
 from auth import (
     verify_password, create_access_token, decode_token,
     get_current_user, seed_users, hash_password, ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -731,8 +731,7 @@ def admin_credentials_update(
 
 def _valid_decoy_name(v, ptype):
     """Validasi nama decoy dari backup restore: hanya nama yang benar-benar
-    ada di decoy_data/{ptype} (atau kosong/'none'). Mencegah path traversal
-    lewat load_decoy_config(os.path.join(...))."""
+    ada (atau kosong/'none')."""
     v = str(v or "").strip()
     if v in ("", "none"):
         return v
@@ -740,51 +739,57 @@ def _valid_decoy_name(v, ptype):
     return v if v in known else ""
 
 
-def _decoy_json_body(cfg: dict) -> dict:
-    return {
-        "label": cfg.get("label") or "",
-        "family_name": cfg.get("family_name") or "",
-        "family_code": cfg.get("family_code") or "",
-        "is_enterprise": bool(cfg.get("is_enterprise")),
-        "migration_type": cfg.get("migration_type") or "NONE",
-        "variant_code": cfg.get("variant_code") or "",
-        "option_name": cfg.get("option_name") or "",
-        "order": cfg.get("order") or 0,
-        "price": cfg.get("price") or 0,
-    }
+# ─── Decoy (DB: family_code + order, resolve live dari API) ─────────────────
+
+def _decoy_rows(payment_type: str):
+    db = next(get_db())
+    try:
+        return db.query(Decoy).filter(Decoy.payment_type == payment_type).order_by(Decoy.id).all()
+    finally:
+        db.close()
+
+
+def _decoy_name(row) -> str:
+    """Nama stabil per baris decoy: slug(label), diberi akhiran -id kalau
+    slug-nya bentrok dengan decoy lain sejenis."""
+    from app.service.decoy import decoy_slug
+    slug = decoy_slug(row.label or "") or f"decoy-{row.id}"
+    clash = _decoy_rows(row.payment_type)
+    if any(decoy_slug(r.label or "") == slug and r.id != row.id for r in clash):
+        return f"{slug}-{row.id}"
+    return slug
+
+
+def _decoy_row_by_name(payment_type: str, name: str):
+    for row in _decoy_rows(payment_type):
+        if _decoy_name(row) == name:
+            return row
+    return None
+
+
+def _decoy_config(row) -> dict:
+    """Config minimal untuk resolve live: cukup family_code + order."""
+    return {"family_code": row.family_code, "order": row.order}
 
 
 def _list_decoys(payment_type: str) -> list[dict]:
-    from app.service.decoy import list_decoy_names, load_decoy_config, decoy_label
-    names = list_decoy_names(payment_type)
-    if "default" not in names and load_decoy_config(payment_type) is not None:
-        names.insert(0, "default")
-    out = []
-    for n in names:
-        cfg = dict(load_decoy_config(payment_type, n) or {})
-        cfg["name"] = n
-        cfg["label"] = decoy_label(n, cfg)
-        cfg["json_text"] = json.dumps(_decoy_json_body(cfg), indent=2, ensure_ascii=False)
-        out.append(cfg)
-    return out
-
-
-def _decoy_file_entries() -> list[tuple[str, str]]:
-    """(zip_path, file_path) untuk semua file decoy di decoy_data/ — backup
-    ZIP membawa file apa adanya, bukan blob JSON."""
-    from app.service.decoy import decoy_type_dir
-    entries = []
-    for ptype in ("qris", "balance"):
-        dirpath = decoy_type_dir(ptype)
-        if os.path.isdir(dirpath):
-            for fn in sorted(os.listdir(dirpath)):
-                if fn.endswith(".json"):
-                    entries.append((f"decoys/{ptype}/{fn}", os.path.join(dirpath, fn)))
-    return entries
+    return [{
+        "name": _decoy_name(row),
+        "label": row.label or f"Decoy #{row.order}",
+        "family_code": row.family_code,
+        "order": row.order,
+        "id": row.id,
+    } for row in _decoy_rows(payment_type)]
 
 
 def _wipe_decoys():
-    """Hapus semua file decoy (qris & balance) + legacy decoy-default-*."""
+    """Hapus semua decoy di DB (qris & balance) + file legacy (migrasi)."""
+    db = next(get_db())
+    try:
+        db.query(Decoy).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
     from app.service.decoy import decoy_type_dir, DECOY_DATA_DIR
     for ptype in ("qris", "balance"):
         dirpath = decoy_type_dir(ptype)
@@ -804,24 +809,39 @@ def _wipe_decoys():
 
 
 def _restore_decoys(decoys: dict) -> int:
-    """Tulis config decoy dari backup ke decoy_data/. Return jumlah terpasang."""
-    from app.service.decoy import save_decoy_config
+    """Simpan decoy dari backup ke DB (migrasi file legacy → DB juga).
+    decoys = {ptype: [{label, family_code, order}]}. Return jumlah dipasang."""
     restored = 0
-    for ptype in ("qris", "balance"):
-        names = decoys.get(ptype)
-        if not isinstance(names, dict):
-            continue
-        for name, cfg in names.items():
-            name = str(name).strip()
-            if not name or not re.fullmatch(r"[A-Za-z0-9_-]{1,60}", name):
+    db = next(get_db())
+    try:
+        for ptype in ("qris", "balance"):
+            rows = decoys.get(ptype)
+            if isinstance(rows, dict):
+                # Format legacy: {name: cfg} → pakai family_code + order dari config
+                rows = [{"label": cfg.get("label") or name, "family_code": cfg.get("family_code"),
+                         "order": cfg.get("order")} for name, cfg in rows.items()]
+            if not isinstance(rows, list):
                 continue
-            if not isinstance(cfg, dict):
-                continue
-            try:
-                save_decoy_config(ptype, name, cfg)
+            for e in rows:
+                if not isinstance(e, dict):
+                    continue
+                fc = _valid_custom_family_code(str(e.get("family_code") or ""))
+                try:
+                    order = int(e.get("order"))
+                except (TypeError, ValueError):
+                    order = -1
+                if not fc or order < 0:
+                    continue
+                db.add(Decoy(
+                    payment_type=ptype,
+                    family_code=fc,
+                    order=order,
+                    label=str(e.get("label") or "")[:100],
+                ))
                 restored += 1
-            except Exception as e:
-                print(f"[restore-decoy] gagal tulis {ptype}/{name}: {e}")
+        db.commit()
+    finally:
+        db.close()
     return restored
 
 
@@ -836,123 +856,6 @@ def admin_decoys_page(request: Request, user: User = Depends(get_current_user)):
         "error": request.query_params.get("error"),
         "updated": request.query_params.get("updated"),
     })
-
-
-@app.get("/admin/decoys/form", response_class=HTMLResponse)
-def admin_decoy_form_page(request: Request, user: User = Depends(get_current_user)):
-    if user.role != "admin":
-        return RedirectResponse(url="/user/dashboard", status_code=303)
-    ptype = request.query_params.get("type", "")
-    if ptype not in ("qris", "balance"):
-        return RedirectResponse(url="/admin/decoys", status_code=303)
-    mode = request.query_params.get("mode", "new")
-    original = request.query_params.get("name", "")
-    default_text = json.dumps(_decoy_json_body({}), indent=2, ensure_ascii=False)
-    if mode == "edit":
-        from app.service.decoy import load_decoy_config, decoy_label
-        cfg = load_decoy_config(ptype, original) or {}
-        if not cfg:
-            return RedirectResponse(url="/admin/decoys", status_code=303)
-        label = decoy_label(original, cfg)
-        data_text = json.dumps(_decoy_json_body(cfg), indent=2, ensure_ascii=False)
-    else:
-        cfg = {}
-        label = ""
-        data_text = default_text
-    return render("admin/decoy_form.html", context={
-        "request": request,
-        "user": user,
-        "mode": "edit" if mode == "edit" else "new",
-        "type": ptype,
-        "original": original if mode == "edit" else "",
-        "label": label,
-        "data_text": data_text,
-        "families": [{"key": k, "label": v["label"], "family_code": v["family_code"]}
-                     for k, v in sorted(_family_registry().items(), key=lambda kv: kv[1]["sort"])],
-    })
-
-
-@app.get("/admin/decoys/family-options")
-def admin_decoy_family_options(family_key: str = "", user: User = Depends(get_current_user)):
-    """Opsi paket (variant_code + order + harga) satu family — dipakai form decoy
-    supaya admin TIDAK perlu tahu UUID family/variant manual. Butuh sesi XL admin."""
-    if user.role != "admin":
-        return JSONResponse({"ok": False, "error": "Akses ditolak"}, status_code=403)
-    reg = _family_registry()
-    cfg = reg.get(family_key.strip())
-    if not cfg:
-        return JSONResponse({"ok": False, "error": "Family tidak ditemukan."}, status_code=404)
-    tokens = _admin_xl_tokens()
-    if not tokens:
-        return JSONResponse({"ok": False, "error": "Sesi XL admin belum aktif — pilih pengguna & nomor di Atur Paket XL dulu."}, status_code=400)
-    is_ent, mig = _family_api_params(cfg["family_code"])
-    _api_delay()
-    data = xl_get_family(API_KEY, tokens, cfg["family_code"], is_enterprise=is_ent, migration_type=mig)
-    if not (data and data.get("package_variants")):
-        return JSONResponse({"ok": False, "error": "Gagal memuat katalog family."}, status_code=502)
-    items = []
-    for v in data["package_variants"]:
-        for o in v["package_options"]:
-            items.append({
-                "variant_code": v["package_variant_code"],
-                "variant_name": v.get("name", ""),
-                "order": o.get("order", 0),
-                "name": o.get("name", ""),
-                "price": o.get("price", 0),
-            })
-    return JSONResponse({"ok": True, "items": items})
-
-
-@app.post("/admin/decoys/save")
-def admin_decoy_save(
-    payment_type: str = Form(...),
-    name: str = Form(""),
-    label: str = Form(""),
-    data: str = Form(""),
-    user: User = Depends(get_current_user),
-):
-    if user.role != "admin":
-        return RedirectResponse(url="/user/dashboard", status_code=303)
-    if payment_type not in ("qris", "balance"):
-        return RedirectResponse(url="/admin/decoys", status_code=303)
-    def _to_int(v) -> int:
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            return 0
-    try:
-        cfg = json.loads(data or "{}")
-    except ValueError:
-        return RedirectResponse(url="/admin/decoys?error=json", status_code=303)
-    if not isinstance(cfg, dict):
-        return RedirectResponse(url="/admin/decoys?error=json", status_code=303)
-    config = {
-        "label": label.strip()[:60],
-        "family_name": str(cfg.get("family_name") or "").strip()[:200],
-        "family_code": str(cfg.get("family_code") or "").strip()[:64],
-        "is_enterprise": bool(cfg.get("is_enterprise")),
-        "migration_type": str(cfg.get("migration_type") or "NONE").strip()[:20] or "NONE",
-        "variant_code": str(cfg.get("variant_code") or "").strip()[:64],
-        "option_name": str(cfg.get("option_name") or "").strip()[:200],
-        "order": _to_int(cfg.get("order")),
-        "price": _to_int(cfg.get("price")),
-    }
-    if not config["family_code"] or not config["variant_code"]:
-        return RedirectResponse(url="/admin/decoys?error=field", status_code=303)
-    from app.service.decoy import save_decoy_config, delete_decoy_config, decoy_slug
-    def _clean(v: str) -> str:
-        return re.sub(r"[^a-zA-Z0-9 _-]", "", (v or "").strip())[:60]
-    raw_name = _clean(name)
-    label = label.strip()[:60]
-    if not label:
-        return RedirectResponse(url="/admin/decoys?error=name", status_code=303)
-    slug = decoy_slug(label)
-    if not slug:
-        return RedirectResponse(url="/admin/decoys?error=name", status_code=303)
-    if raw_name and slug != raw_name:
-        delete_decoy_config(payment_type, raw_name)
-    save_decoy_config(payment_type, slug, config)
-    return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
 
 
 @app.get("/admin/decoys/new", response_class=HTMLResponse)
@@ -973,11 +876,12 @@ def admin_decoy_new_page(request: Request, type: str = "", user: User = Depends(
         "error": "",
         "fc": "",
         "family_label": "",
+        "name": "",
     })
 
 
 @app.get("/admin/decoys/browse", response_class=HTMLResponse)
-def admin_decoy_browse_page(request: Request, type: str = "", fc: str = "",
+def admin_decoy_browse_page(request: Request, type: str = "", fc: str = "", name: str = "",
                             user: User = Depends(get_current_user)):
     """Hasil Browse family code untuk tambah decoy — daftar paket + tombol
     'Jadikan Decoy'. Sama seperti Browse Atur Paket XL (live dari API XL)."""
@@ -1025,6 +929,7 @@ def admin_decoy_browse_page(request: Request, type: str = "", fc: str = "",
         "error": error,
         "fc": fc,
         "family_label": family_label,
+        "name": str(name or "").strip()[:60],
     })
 
 
@@ -1038,33 +943,31 @@ def admin_decoy_save_from_browse(
     option_name: str = Form(""),
     order: int = Form(0),
     price: int = Form(0),
+    name: str = Form(""),
     user: User = Depends(get_current_user),
 ):
-    """Simpan decoy dari pilihan Browse — config dibangun dari baris yang
-    dipilih admin (family/variant/order/price), label = nama paket."""
+    """Simpan decoy dari pilihan Browse — DB hanya menyimpan family_code +
+    order (+ label tampilan). name (opsional) = edit decoy yang sudah ada."""
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
     if payment_type not in ("qris", "balance"):
         return RedirectResponse(url="/admin/decoys", status_code=303)
     fc = _valid_custom_family_code(family_code)
-    vc = str(variant_code or "").strip()[:64]
-    name = str(option_name or "").strip()[:200]
-    if not fc or not vc or not name or order < 0:
+    lbl = str(option_name or "").strip()[:100]
+    if not fc or order < 0 or not lbl:
         return RedirectResponse(url="/admin/decoys?error=field", status_code=303)
-    from app.service.decoy import save_decoy_config, decoy_slug
-    cfg = {
-        "label": name,
-        "family_name": str(family_name or "").strip()[:200],
-        "family_code": fc,
-        "is_enterprise": False,
-        "migration_type": "NONE",
-        "variant_code": vc,
-        "option_name": name,
-        "order": int(order),
-        "price": max(0, int(price or 0)),
-    }
-    slug = decoy_slug(name) or "decoy"
-    save_decoy_config(payment_type, slug, cfg)
+    db = next(get_db())
+    try:
+        row = _decoy_row_by_name(payment_type, str(name or "").strip()) if (name or "").strip() else None
+        if row:
+            row.family_code = fc
+            row.order = int(order)
+            row.label = lbl
+        else:
+            db.add(Decoy(payment_type=payment_type, family_code=fc, order=int(order), label=lbl))
+        db.commit()
+    finally:
+        db.close()
     return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
 
 
@@ -1078,8 +981,14 @@ def admin_decoy_delete(
         return RedirectResponse(url="/user/dashboard", status_code=303)
     if payment_type not in ("qris", "balance"):
         return RedirectResponse(url="/admin/decoys", status_code=303)
-    from app.service.decoy import delete_decoy_config
-    delete_decoy_config(payment_type, re.sub(r"[^a-zA-Z0-9 _-]", "", (name or "")).strip()[:60])
+    db = next(get_db())
+    try:
+        row = _decoy_row_by_name(payment_type, str(name or "").strip())
+        if row:
+            db.delete(row)
+            db.commit()
+    finally:
+        db.close()
     return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
 
 
@@ -2331,8 +2240,13 @@ def _build_backup_zip_bytes(admin_data: dict, users_data: list, xl_data: list, f
     exported_at = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB")
     ax_fp = _read_ax_fp_file()
     settings_data = _collect_backup_settings()
-    decoy_files = _decoy_file_entries()
-    decoy_count = len(decoy_files)
+    decoy_data = {
+        "qris": [{"label": d["label"], "family_code": d["family_code"], "order": d["order"]}
+                 for d in _list_decoys("qris")],
+        "balance": [{"label": d["label"], "family_code": d["family_code"], "order": d["order"]}
+                    for d in _list_decoys("balance")],
+    }
+    decoy_count = len(decoy_data["qris"]) + len(decoy_data["balance"])
 
     entries: list[tuple[str, str]] = [
         ("manifest.json", json.dumps({
@@ -2348,17 +2262,8 @@ def _build_backup_zip_bytes(admin_data: dict, users_data: list, xl_data: list, f
         ("prices.json", json.dumps(prices, indent=2, ensure_ascii=False)),
         ("families.json", json.dumps(_family_registry(), indent=2, ensure_ascii=False)),
         ("settings.json", json.dumps(settings_data, indent=2, ensure_ascii=False)),
+        ("decoys.json", json.dumps(decoy_data, indent=2, ensure_ascii=False)),
     ]
-    for zip_path, file_path in decoy_files:
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                entries.append((zip_path, f.read()))
-        except OSError:
-            continue
-    if not decoy_files:
-        # Marker biar restore tahu backup ini memang tanpa decoy (bukan file lama)
-        # dan decoy live ikut dihapus agar hasil identik dengan isi backup.
-        entries.append(("decoys/.keep", ""))
     if ax_fp:
         entries.append(("device.fp", ax_fp))
     fp_dir = os.path.join(BASE_DIR, "data")
@@ -2974,24 +2879,44 @@ def _load_backup_v3(zf) -> dict | None:
         raise ValueError("File settings.json di dalam ZIP tidak valid.")
 
     decoys_raw = None
-    for name in zf.namelist():
-        if name.startswith("decoys/") and name.endswith(".json"):
-            if decoys_raw is None:
-                decoys_raw = {}
-            parts = name.split("/")
-            if len(parts) != 3:
-                continue
-            ptype, fname = parts[1], parts[2][:-5]
-            try:
-                cfg = json.loads(zf.read(name).decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError, RuntimeError):
-                continue
-            if isinstance(cfg, dict):
-                decoys_raw.setdefault(ptype, {})[fname] = cfg
-    if decoys_raw is None and any(n.startswith("decoys/") for n in zf.namelist()):
-        # Backup punya section decoys tapi tanpa file .json (mis. hanya marker
-        # .keep) → berarti backup memang tanpa decoy (authoritative).
-        decoys_raw = {}
+    # Format baru: decoys.json (DB: family_code + order) — authoritative.
+    try:
+        decoys_json = json.loads(zf.read("decoys.json").decode("utf-8"))
+        if isinstance(decoys_json, dict):
+            decoys_raw = {}
+            for ptype in ("qris", "balance"):
+                rows = decoys_json.get(ptype)
+                if isinstance(rows, list):
+                    decoys_raw[ptype] = [r for r in rows if isinstance(r, dict)]
+    except KeyError:
+        pass
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise ValueError("File decoys.json di dalam ZIP tidak valid.")
+    # Format lama: file decoys/{ptype}/{name}.json (config lengkap) → migrasi
+    # ke struktur minimal (label/family_code/order).
+    if decoys_raw is None:
+        for name in zf.namelist():
+            if name.startswith("decoys/") and name.endswith(".json"):
+                if decoys_raw is None:
+                    decoys_raw = {}
+                parts = name.split("/")
+                if len(parts) != 3:
+                    continue
+                ptype, fname = parts[1], parts[2][:-5]
+                try:
+                    cfg = json.loads(zf.read(name).decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError, RuntimeError):
+                    continue
+                if isinstance(cfg, dict):
+                    decoys_raw.setdefault(ptype, []).append({
+                        "label": (cfg.get("label") or fname),
+                        "family_code": cfg.get("family_code"),
+                        "order": cfg.get("order"),
+                    })
+        if decoys_raw is None and any(n.startswith("decoys/") for n in zf.namelist()):
+            # Section decoys tanpa file .json (mis. hanya marker .keep) →
+            # backup memang tanpa decoy (authoritative).
+            decoys_raw = {}
 
     data = _norm_backup({
         "version": 3,
@@ -3323,18 +3248,19 @@ async def admin_restore_upload(
     if isinstance(raw_decoys, dict):
         vd = {}
         for ptype in ("qris", "balance"):
-            names = raw_decoys.get(ptype)
-            if not isinstance(names, dict):
+            rows = raw_decoys.get(ptype)
+            if not isinstance(rows, list):
                 continue
-            cleaned = {}
-            for name, cfg in names.items():
-                name = str(name).strip()
-                if name and re.fullmatch(r"[A-Za-z0-9_-]{1,60}", name) and isinstance(cfg, dict):
-                    cleaned[name] = cfg
+            cleaned = []
+            for e in rows:
+                if not isinstance(e, dict):
+                    continue
+                if _valid_custom_family_code(str(e.get("family_code") or "")):
+                    cleaned.append(e)
             if cleaned:
                 vd[ptype] = cleaned
         # dict (mungkin kosong) = backup memang mengatur decoy (punya key) →
-        # live decoy dihapus dulu biar hasil identik dengan isi backup.
+        # decoy live dihapus dulu biar hasil identik dengan isi backup.
         valid_decoys = vd
 
     valid_settings = _validate_restore_settings(data.get("settings"))
@@ -5295,9 +5221,14 @@ def _get_family_items_and_detail(fam_key, option_number, active_xl, tokens=None)
     return None, None
 
 def _append_decoy_item(items, tokens, payment_type="balance", name="default"):
+    """Tambahkan item decoy (dari DB: family_code+order, resolve live API)
+    ke bundle pembayaran. Return (items, decoy_price) — None bila gagal."""
     from app.service.decoy import build_decoy_item
+    row = _decoy_row_by_name(payment_type, name)
+    if row is None:
+        return items, None
     _api_delay()
-    decoy_item = build_decoy_item(API_KEY, tokens, payment_type, name)
+    decoy_item = build_decoy_item(API_KEY, tokens, _decoy_config(row))
     if not decoy_item or not decoy_item["item_code"]:
         return items, None
     return items + [decoy_item], int(decoy_item["item_price"] or 0)
@@ -5565,10 +5496,9 @@ def _qris_decoy_price(active_xl=None, name="default"):
     """Harga decoy QRIS yang dipakai di settlement (live dari API).
 
     Checkout menampilkan harga ini agar total QRIS di layar == total yang
-    benar-benar ditagih. Hanya harga hasil fetch live yang di-cache; nilai
-    fallback config TIDAK di-cache supaya begitu ada akun XL aktif,
-    checkout berikutnya langsung memakai harga live. Cache di-kunci per akun
-    XL (harga decoy bisa beda antar nomor).
+    benar-benar ditagih. Hanya harga hasil fetch live yang di-cache; kalau
+    fetch gagal fallback 0 (harga tak tersimpan — resolve selalu live).
+    Cache di-kunci per akun XL (harga decoy bisa beda antar nomor).
     """
     acct_key = f"{active_xl.id}" if (active_xl and active_xl.id) else "?"
     cache_key = f"qris:{acct_key}:{name}"
@@ -5576,20 +5506,21 @@ def _qris_decoy_price(active_xl=None, name="default"):
     if entry and entry[1] > time.time():
         return entry[0]
     try:
-        from app.service.decoy import build_decoy_item, load_decoy_config
-        config = load_decoy_config("qris", name) or {}
-        price = int(config.get("price") or 0)
+        from app.service.decoy import build_decoy_item
+        price = 0
         if active_xl and active_xl.refresh_token:
             _api_delay()
             tokens = _get_xl_tokens(active_xl)
             if tokens:
                 _api_delay()
-                item = build_decoy_item(API_KEY, tokens, "qris", name)
-                if item:
-                    price = int(item["item_price"] or 0)
-                    _decoy_price_cache[cache_key] = (price, time.time() + _DECOY_PRICE_TTL)
-                    _prune_mem_cache(_decoy_price_cache)
-                    return price
+                row = _decoy_row_by_name("qris", name)
+                if row is not None:
+                    item = build_decoy_item(API_KEY, tokens, _decoy_config(row))
+                    if item:
+                        price = int(item["item_price"] or 0)
+                        _decoy_price_cache[cache_key] = (price, time.time() + _DECOY_PRICE_TTL)
+                        _prune_mem_cache(_decoy_price_cache)
+                        return price
     except Exception:
         pass
     return price

@@ -75,6 +75,9 @@ def delete_decoy_config(payment_type: str, name: str) -> bool:
 
 
 def resolve_decoy_package(api_key: str, tokens: dict, config: dict) -> dict | None:
+    """Resolve paket decoy dari config {family_code, order} (+ opsional
+    variant_code). Family di-fetch live; opsi dicari berdasarkan order
+    (variant_code opsional — kalau tidak ada, cari di SEMUA variant)."""
     family_data = get_family(
         api_key,
         tokens,
@@ -85,27 +88,33 @@ def resolve_decoy_package(api_key: str, tokens: dict, config: dict) -> dict | No
     if not family_data:
         return None
 
+    wanted_variant = config.get("variant_code") or None
     option_code = None
+    chosen_variant = None
     for variant in family_data["package_variants"]:
-        if variant["package_variant_code"] != config["variant_code"]:
+        vcode = variant.get("package_variant_code")
+        if wanted_variant and vcode != wanted_variant:
             continue
         for option in variant["package_options"]:
-            if option["order"] == config.get("order"):
+            if option.get("order") == config.get("order"):
                 option_code = option["package_option_code"]
+                chosen_variant = vcode
                 break
-        break
+        if option_code:
+            break
 
     if option_code is None:
         return None
 
-    return get_package(api_key, tokens, option_code, config["family_code"], config["variant_code"])
+    return get_package(api_key, tokens, option_code, config["family_code"], chosen_variant or "")
 
 
-def build_decoy_item(api_key: str, tokens: dict, payment_type: str = "balance", name: str = "default") -> PaymentItem | None:
-    config = load_decoy_config(payment_type, name)
-    if not config:
+def build_decoy_item(api_key: str, tokens: dict, config: dict) -> PaymentItem | None:
+    """Bangun PaymentItem decoy dari config {family_code, order} — dipakai
+    saat settlement (item ditambahkan ke bundle). Semua field di-resolve LIVE
+    dari API XL (tidak disimpan)."""
+    if not (config and config.get("family_code") and config.get("order") is not None):
         return None
-
     package_detail = resolve_decoy_package(api_key, tokens, config)
     if not package_detail:
         return None
@@ -114,7 +123,7 @@ def build_decoy_item(api_key: str, tokens: dict, payment_type: str = "balance", 
     return PaymentItem(
         item_code=option.get("package_option_code", ""),
         product_type="",
-        item_price=option.get("price", config.get("price", 0)),
+        item_price=option.get("price", 0),
         item_name=option.get("name", ""),
         tax=0,
         token_confirmation=package_detail.get("token_confirmation", ""),

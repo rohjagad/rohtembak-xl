@@ -12,6 +12,7 @@
 <div class="card" style="margin-bottom:16px;">
     <form method="GET" action="/admin/decoys/browse" class="price-form" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
         <input type="hidden" name="type" value="{{ type }}">
+        {% if name %}<input type="hidden" name="name" value="{{ name }}">{% endif %}
         <label style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:240px;">
             <span class="price-hint" style="font-weight:600;">Family code</span>
             <input type="text" name="fc" value="{{ fc }}" class="form-control" placeholder="Ketik family code XL" autocomplete="off">
@@ -52,6 +53,7 @@
                 <td>
                     <form method="POST" action="/admin/decoys/save-from-browse">
                         <input type="hidden" name="payment_type" value="{{ type }}">
+                        {% if name %}<input type="hidden" name="name" value="{{ name }}">{% endif %}
                         <input type="hidden" name="family_code" value="{{ fc }}">
                         <input type="hidden" name="family_name" value="{{ family_label }}">
                         <input type="hidden" name="variant_code" value="{{ it.variant_code }}">

@@ -141,6 +141,20 @@ class PackagePrice(Base):
     __table_args__ = (Index("uq_package_price", "family_key", "option_number", unique=True),)
 
 
+class Decoy(Base):
+    """Decoy package (qris/balance) — cukup family_code + order; variant &
+    harga di-resolve LIVE dari API XL saat dipakai (browse-only, tanpa file
+    JSON). Label cuma untuk tampilan dropdown."""
+    __tablename__ = "decoys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    payment_type = Column(String(10), nullable=False, index=True)  # qris | balance
+    family_code = Column(String(64), nullable=False)
+    order = Column(Integer, nullable=False)
+    label = Column(String(100), default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class XlFamily(Base):
     """Registry family paket XL — 1 group = 1 family code.
 

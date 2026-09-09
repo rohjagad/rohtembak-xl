@@ -88,8 +88,8 @@
             <thead>
                 <tr>
                     <th>Label</th>
-                    <th>Slug</th>
-                    <th>Harga</th>
+                    <th>Family Code</th>
+                    <th>Order</th>
                     <th class="actions"></th>
                 </tr>
             </thead>
@@ -97,10 +97,10 @@
                 {% for d in decoys[t] %}
                 <tr>
                     <td><div class="decoy-main">{{ d.label }}</div></td>
-                    <td><div class="decoy-sub">{{ d.name }}</div></td>
-                    <td class="num">{{ d.price|rupiah }} IDR</td>
+                    <td><div class="decoy-sub" style="font-size:12px;">{{ d.family_code }}</div></td>
+                    <td class="num">{{ d.order }}</td>
                     <td class="actions">
-                        <a href="/admin/decoys/form?mode=edit&type={{ t }}&name={{ d.name | urlencode }}" class="btn btn-sm btn-outline">Edit</a>
+                        <a href="/admin/decoys/browse?type={{ t }}&fc={{ d.family_code | urlencode }}&name={{ d.name | urlencode }}" class="btn btn-sm btn-outline">Ubah</a>
                         <form method="POST" action="/admin/decoys/delete" onsubmit="return confirm('Hapus decoy {{ d.label }}?');">
                             <input type="hidden" name="payment_type" value="{{ t }}">
                             <input type="hidden" name="name" value="{{ d.name }}">
