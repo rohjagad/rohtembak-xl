@@ -82,7 +82,7 @@ def rotate_jwt_secret() -> bool:
 
 
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = float(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "720"))
+ACCESS_TOKEN_EXPIRE_MINUTES = float(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
 
 # ─── Password storage ─────────────────────────────────────────────────────────
