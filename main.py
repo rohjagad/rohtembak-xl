@@ -4778,21 +4778,10 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                         if res and res.get("status") == "SUCCESS":
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
                         else:
-                            demanded = _demanded_valid_amount(res)
-                            if demanded is not None and bool(decoy_name):
-                                # Retry sekali pakai jumlah yang diminta XL (alur
-                                # decoy balance): kalau pulsa tidak cukup, XL gagal
-                                # memotong tapi paket gratis tetap masuk.
-                                _api_delay()
-                                res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance",
-                                                         True, decoy_name or "default", forced_total=demanded)
-                            if res and res.get("status") == "SUCCESS":
-                                pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
-                            else:
-                                pay_error = _friendly_settle_msg(
-                                    res.get("message") if isinstance(res, dict) else None,
-                                    default=f"Pembayaran gagal: {res.get('message', 'No response') if isinstance(res, dict) else 'No response'}"
-                                )
+                            pay_error = _friendly_settle_msg(
+                                res.get("message") if isinstance(res, dict) else None,
+                                default=f"Pembayaran gagal: {res.get('message', 'No response') if isinstance(res, dict) else 'No response'}"
+                            )
                     elif method == "qris":
                         from app.client.purchase.qris import show_qris_payment
                         _api_delay()
@@ -5120,45 +5109,9 @@ def _friendly_settle_msg(msg, default="Pembayaran gagal."):
     return default
 
 
-def _demanded_valid_amount(res) -> int | None:
-    """Ambil jumlah yang diminta XL dari respon settlement yang ditolak.
-    Dua format yang dikenal:
-    - QRIS: 'Payment amount is not valid, valid amount is 102000'
-    - Balance: 'Bizz-err.Amount.Total = 102000'  (pola TUI: split '=')
-    None = tidak ada.
-    """
-    if not isinstance(res, dict):
-        return None
-    msg = str(res.get("message") or "")
-    m = (
-        re.search(r"valid\s+(?:payment\s+)?amount\s+is\s+([\d.,]+)", msg, re.IGNORECASE)
-        or re.search(r"[Aa]mount\.?[Tt]otal[^\d=]*=\s*([\d.,]+)", msg)
-        or re.search(r"(?:valid|correct|right)\s+(?:payment\s+)?amount\s+(?:is|should\s+be)\s+([\d.,]+)", msg, re.IGNORECASE)
-        or re.search(r"(?:correct\s+amount|amount\s+should\s+be|harga\s+yang\s+benar)\s*(?:is|=|:)?\s*([\d.,]+)", msg, re.IGNORECASE)
-    )
-    if m:
-        try:
-            return int(m.group(1).replace(".", "").replace(",", ""))
-        except (ValueError, TypeError):
-            return None
-    return None
-
-
-def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_name="default", forced_total=None):
+def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_name="default"):
     # rewrite_price (dari /prices-xl) menang atas display/api — ini jumlah
     # yang benar-benar ditagih; item_price PaymentItem TETAP harga asli API.
-    # forced_total (opsional): retry sekali pakai jumlah yang diminta XL
-    # (alur decoy balance — kalau pulsa tidak cukup, paket gratis tetap masuk).
-    if forced_total is not None:
-        items_with_decoy, decoy_price = _append_decoy_item(items, tokens, method, decoy_name)
-        if decoy_price is None:
-            raise ValueError("Gagal memuat paket decoy.")
-        overwrite_amount = int(forced_total)
-        if method == "qris":
-            return pay_fn(API_KEY, tokens, items_with_decoy, "SHARE_PACKAGE", False,
-                          overwrite_amount=overwrite_amount, token_confirmation_idx=1)
-        return pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False,
-                      overwrite_amount=overwrite_amount, token_confirmation_idx=1)
     charge = detail.get("rewrite_price")
     if charge is None:
         charge = detail["price"]
@@ -5206,21 +5159,10 @@ def _process_payment(active_xl, fam_key, option_number, method):
                         if res and res.get("status") == "SUCCESS":
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
                         else:
-                            demanded = _demanded_valid_amount(res)
-                            if demanded is not None and use_decoy:
-                                # Retry sekali pakai jumlah yang diminta XL (alur
-                                # decoy balance): kalau pulsa tidak cukup, XL gagal
-                                # memotong tapi paket gratis tetap masuk.
-                                _api_delay()
-                                res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance",
-                                                         True, decoy_name, forced_total=demanded)
-                            if res and res.get("status") == "SUCCESS":
-                                pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
-                            else:
-                                pay_error = _friendly_settle_msg(
-                                    res.get("message") if isinstance(res, dict) else None,
-                                    default=f"Pembayaran gagal: {res.get('message', 'No response') if isinstance(res, dict) else 'No response'}"
-                                )
+                            pay_error = _friendly_settle_msg(
+                                res.get("message") if isinstance(res, dict) else None,
+                                default=f"Pembayaran gagal: {res.get('message', 'No response') if isinstance(res, dict) else 'No response'}"
+                            )
                     elif method == "qris":
                         from app.client.purchase.qris import show_qris_payment
                         _api_delay()
