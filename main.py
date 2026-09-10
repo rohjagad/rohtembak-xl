@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, Depends, Form, File, UploadFile, HTTPException, status
+from starlette.concurrency import iterate_in_threadpool
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, or_
@@ -730,7 +731,7 @@ def admin_credentials_update(
 
 
 def _valid_decoy_name(v, ptype):
-    """Validasi nama decoy dari backup restore: hanya nama yang benar-benar
+    """Validasi nama decoy dari input admin: hanya nama yang benar-benar
     ada (atau kosong/'none')."""
     v = str(v or "").strip()
     if v in ("", "none"):
@@ -905,9 +906,13 @@ def admin_decoy_browse_page(request: Request, type: str = "", fc: str = "", name
     error = ""
     family_label = ""
     if fc:
-        tokens = _admin_xl_tokens()
+        try:
+            tokens = _admin_xl_tokens()
+        except Exception as e:
+            print(f"[decoy-browse] token error: {e}")
+            tokens = None
         if not tokens:
-            error = "Sesi XL admin belum aktif."
+            error = "Sesi XL admin belum aktif atau sedang terganggu — coba lagi."
         else:
             try:
                 data = _custom_fetch_family(tokens, fc)
@@ -1080,7 +1085,13 @@ def admin_prices_xl_page(request: Request, user: User = Depends(get_current_user
     tokens = None
     if admin_sess:
         with _catalog_fetch_lock:
-            tokens = _admin_xl_tokens()
+            try:
+                tokens = _admin_xl_tokens()
+            except Exception as e:
+                # Blip jaringan XL jangan 500 — tampilkan tabel dengan nama
+                # fallback; admin tinggal refresh.
+                print(f"[prices-xl] token error: {e}")
+                tokens = None
     rows = []
     for fam, cfg in reg.items():
         row = {"key": fam, "label": cfg["label"], "pkgs": []}
@@ -1551,10 +1562,14 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
     error = None
     if _admin_xl_read():
         with _catalog_fetch_lock:
-            tokens = _admin_xl_tokens()
+            try:
+                tokens = _admin_xl_tokens()
+            except Exception as e:
+                # Gangguan jaringan ≠ sesi mati: jangan clear sesi kurasi.
+                print(f"[browse] token error: {e}")
+                tokens = None
         if not tokens:
-            _admin_xl_clear()
-            error = "Sesi XL kedaluwarsa — pilih ulang pengguna & nomornya."
+            error = "Sesi XL tidak dapat dipakai sekarang (gangguan jaringan atau belum aktif) — coba lagi."
         else:
             fam_code = cfg["family_code"]
             is_ent, mig = _family_api_params(fam_code)
@@ -1710,7 +1725,7 @@ def admin_prices_xl_login_select(
     if not account_id:
         # Kosong (pilih pengguna / pilih nomor) → set sesi admin XL jadi kosong.
         _admin_xl_clear()
-        return RedirectResponse(url="/prices-xl/login-xl/select", status_code=303)
+        return RedirectResponse(url="/admin/sesi-xl?ok=1", status_code=303)
     try:
         account_id = int(account_id)
     except ValueError:
@@ -1837,7 +1852,6 @@ def admin_delete_user(
         _XL_TOKEN_CACHE.pop(acc.subscriber_id or acc.id, None)
     db.query(BalanceTransaction).filter(BalanceTransaction.user_id == u.id).delete()
     db.query(TopupTransaction).filter(TopupTransaction.user_id == u.id).delete()
-    remove_user_ax_fp(u.username)
     db.delete(u)
     # Double-check terakhir: create-topup paralel bisa saja menyisipkan baris
     # pending baru setelah pengecekan awal. SQLite menserialisasi writer,
@@ -1853,6 +1867,10 @@ def admin_delete_user(
             detail="User masih punya topup QRIS menunggu pembayaran. Tunggu kedaluwarsa dulu (maks ~6 menit)."
         )
     db.commit()
+    # Fingerprint file dihapus SETELAH commit sukses — kalau dihapus sebelum
+    # guard rollback dan delete terbatal, user tetap ada tapi fp-nya hilang
+    # (device fp berubah → refresh token bisa tak cocok → OTP ulang).
+    remove_user_ax_fp(u.username)
     return RedirectResponse(url="/admin/users", status_code=303)
 
 
@@ -3038,9 +3056,13 @@ def _validate_restore_settings(raw) -> dict | None:
                 pins = [{"label": CUSTOM_BUY_LABEL_DEFAULT, "family_code": fc}]
         label = str(cb.get("label") or "").strip()[:100]
         if label or pins:
+            # Browse fee ikut disimpan supaya restore tidak menimpa fee
+            # admin dengan None (fee hilang tiap restore).
             out["custom_buy"] = {
                 "label": label or CUSTOM_BUY_LABEL_DEFAULT,
                 "pins": pins,
+                "browse_fee_pulsa": cb.get("browse_fee_pulsa"),
+                "browse_fee_qris": cb.get("browse_fee_qris"),
             }
 
     return out or None
@@ -3211,6 +3233,44 @@ async def admin_restore_upload(
     known_fams = set(_family_registry()) | set(
         k for k, v in (data.get("families") or {}).items() if isinstance(v, dict)
     )
+    # Nama decoy dari BACKUP (bukan DB saat ini — decoy DB lama akan di-wipe
+    # lalu diisi ulang dari backup; membandingkan dengan DB sekarang akan
+    # mem-blank referensi decoy yang sebenarnya ikut ter-restore).
+    # Nama saat restore = slug(label), + "-id" bila slug bentrok; referensi
+    # lama juga mungkin memakai suffix -id, jadi terima keduanya.
+    from app.service.decoy import decoy_slug
+    def _decoy_names_from_backup(ptype):
+        slugs = set()
+        raw_decoys = data.get("decoys")
+        entries = []
+        if isinstance(raw_decoys, dict):
+            e = raw_decoys.get(ptype)
+            if isinstance(e, dict):
+                # Format legacy: {name: cfg}
+                entries = [dict(e2, label=(e2.get("label") or name))
+                           for name, e2 in e.items() if isinstance(e2, dict)]
+            elif isinstance(e, list):
+                entries = [e2 for e2 in e if isinstance(e2, dict)]
+        elif isinstance(raw_decoys, list):
+            entries = [e for e in raw_decoys
+                       if isinstance(e, dict) and e.get("payment_type") == ptype]
+        for e in entries:
+            s = decoy_slug(str(e.get("label") or ""))
+            if s:
+                slugs.add(s)
+        return slugs
+
+    def _decoy_ref(v, ptype):
+        v = str(v or "").strip()
+        if v in ("", "none"):
+            return v
+        slugs = _decoy_names_from_backup(ptype)
+        if v in slugs:
+            return v
+        # Toleransi suffix bentrok lama: slug-<id>
+        base = v.rsplit("-", 1)[0]
+        return v if base in slugs else ""
+
     valid_prices = []
     price_seen = set()
     for p in data["prices"] or []:
@@ -3248,8 +3308,8 @@ async def admin_restore_upload(
             "option_number": on,
             "display_price": dp,
             "rewrite_price": rp,
-            "decoy_qris": _valid_decoy_name(p.get("decoy_qris"), "qris"),
-            "decoy_pulsa": _valid_decoy_name(p.get("decoy_pulsa"), "balance"),
+            "decoy_qris": _decoy_ref(p.get("decoy_qris"), "qris"),
+            "decoy_pulsa": _decoy_ref(p.get("decoy_pulsa"), "balance"),
             "fee_qris": _norm_fee(p.get("fee_qris")),
             "fee_pulsa": _norm_fee(p.get("fee_pulsa")),
         })
@@ -3300,7 +3360,12 @@ async def admin_restore_upload(
 
     # 2. Wipe all existing data so the restore result is identical with the backup
     db.query(BalanceTransaction).delete(synchronize_session=False)
-    db.query(TopupTransaction).delete(synchronize_session=False)
+    # Topup 'waiting/pending' DIPERTAHANKAN: backup tidak mengelola transaksi,
+    # dan menghapusnya membuat pembayaran in-flight (sudah dibayar user) tidak
+    # bisa dikredit karena check_payment butuh baris trx_id-nya.
+    db.query(TopupTransaction).filter(
+        TopupTransaction.status.notin_(("waiting", "pending"))
+    ).delete(synchronize_session=False)
     db.query(Balance).delete(synchronize_session=False)
     db.query(XLAccount).delete(synchronize_session=False)
     db.query(User).delete(synchronize_session=False)
@@ -3322,8 +3387,13 @@ async def admin_restore_upload(
     users_by_name = {}
     reserved = set()
     if has_admin:
-        admin = User(username=a_username, email=a_email,
-                     password_hash=hash_password(a_password), password=a_password, role="admin")
+        # Sama seperti user: password bcrypt dari backup dipakai langsung.
+        if str(a_password).startswith("$2"):
+            admin = User(username=a_username, email=a_email,
+                         password_hash=a_password, password=None, role="admin")
+        else:
+            admin = User(username=a_username, email=a_email,
+                         password_hash=hash_password(a_password), password=a_password, role="admin")
         db.add(admin)
         users_by_name[a_username] = admin
         reserved.add(a_username)
@@ -3349,8 +3419,16 @@ async def admin_restore_upload(
         if e["username"] in reserved:
             continue
         email = _resolve_restore_email(db, None, e["username"], e["email"])
+        # Kolom password bisa berisi plaintext (install baru) atau hash bcrypt
+        # (baris lama sebelum kolom password ada, default ''). Hash bcrypt
+        # ($2...) dipakai langsung sebagai password_hash — meng-hash ulang
+        # membuat login rusak permanen.
+        if str(e["password"] or "").startswith("$2"):
+            u_password_hash, u_password = e["password"], None
+        else:
+            u_password_hash, u_password = hash_password(e["password"]), e["password"]
         u = User(username=e["username"], email=email,
-                 password_hash=hash_password(e["password"]), password=e["password"], role="user")
+                 password_hash=u_password_hash, password=u_password, role="user")
         db.add(u)
         db.flush()
         users_by_name[u.username] = u
@@ -3713,10 +3791,19 @@ def xl_otp_submit(
         return render("user/otp_submit.html", context=ctx, status_code=400)
 
     _api_delay()
-    tokens = xl_submit_otp(API_KEY, "SMS", phone_number, otp_code, user.username)
+    tokens = None
+    otp_network_error = False
+    try:
+        tokens = xl_submit_otp(API_KEY, "SMS", phone_number, otp_code, user.username)
+    except Exception as e:
+        # Gangguan jaringan ≠ OTP salah — jangan suruh user minta OTP ulang.
+        print(f"[submit-otp] network error: {e}")
+        otp_network_error = True
     if tokens is None:
         ctx.update({"request": request, "phone_number": phone_number, "label": label,
-            "error": "Kode OTP salah atau sudah kadaluarsa"})
+            "error": ("Gagal terhubung ke XL — periksa koneksi lalu coba lagi."
+                      if otp_network_error else
+                      "Kode OTP salah atau sudah kadaluarsa")})
         return render("user/otp_submit.html", context=ctx, status_code=400)
 
     access_token = tokens.get("access_token", "")
@@ -4281,7 +4368,12 @@ def _admin_xl_tokens():
 def _admin_xl_fetch_catalog():
     """Fetch katalog semua family pakai sesi admin XL → isi cache NAMA memori
     (TDK disimpan ke disk). Return (ok, pesan)."""
-    tokens = _admin_xl_tokens()
+    try:
+        tokens = _admin_xl_tokens()
+    except Exception as e:
+        # Gangguan jaringan ≠ sesi mati — jangan hapus sesi kurasi.
+        print(f"[admin-catalog] token error: {e}")
+        return False, "Gagal menghubungi XL (gangguan jaringan) — coba lagi."
     if not tokens:
         _admin_xl_clear()
         return False, "Sesi XL tidak valid. Pilih pengguna dengan nomor XL yang aktif."
@@ -4590,9 +4682,12 @@ async def user_xl_beli_paket_stream(request: Request, user: User = Depends(get_c
     async def _stream_guard():
         # Bungkus generator: cancel watcher tepat saat stream beneran selesai
         # (client pergi / server selesai) — bukan pas endpoint return.
-        # Generator ini SYNC — iterasi pakai for biasa, lalu yield per chunk.
+        # Generator SYNC dijalankan di threadpool (iterate_in_threadpool):
+        # kalau di-iterasi langsung dengan for, seluruh isi generator
+        # (time.sleep + requests ke XL API, 10-60 detik) memblokir event
+        # loop → SELURUH app freeze untuk semua user.
         try:
-            for chunk in _stream_beli_paket_events(ctx.get("active_xl"), want, disconnected):
+            async for chunk in iterate_in_threadpool(_stream_beli_paket_events(ctx.get("active_xl"), want, disconnected)):
                 yield chunk
         finally:
             disconnected.set()
@@ -4702,16 +4797,9 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
     remaining = balance - fee
     decoy_options = []
     for d in _list_decoys(method):
-        # Harga decoy per metode: QRIS live dari API (per akun), balance dari
-        # config. Dipakai JS checkout untuk menampilkan total yang benar.
-        if method == "qris":
-            decoy_price = _qris_decoy_price(active_xl, d["name"])
-        else:
-            try:
-                from app.service.decoy import load_decoy_config
-                decoy_price = int((load_decoy_config("balance", d["name"]) or {}).get("price") or 0)
-            except Exception:
-                decoy_price = 0
+        # Harga decoy live dari API untuk kedua metode (qris & balance),
+        # per akun — sama dengan yang di-resolve saat settlement.
+        decoy_price = _decoy_live_price(active_xl, method, d["name"])
         decoy_options.append({
             "name": d["name"],
             "label": (d.get("label") or d["name"]),
@@ -4957,9 +5045,11 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                 except Exception as e:
                     pay_error = f"Error: {e}"
             else:
-                pay_error = "Paket tidak ditemukan."
+                # Bisa jadi fetch gagal (network/token blip) — jangan timpa
+                # error asli dengan "Paket tidak ditemukan" yang menyesatkan.
+                pay_error = pay_error or "Paket tidak ditemukan."
         else:
-            pay_error = "Akun XL tidak aktif."
+            pay_error = pay_error or "Akun XL tidak aktif."
     pay_extra["terminal_output"] = _stdout_buf.getvalue()
     return detail, pay_error, pay_success, pay_extra
 
@@ -5153,8 +5243,10 @@ async def user_xl_detail_stream(request: Request, family: str, n: int, user: Use
     task = asyncio.create_task(_watch())
 
     async def _stream_guard():
+        # Sync generator di threadpool — lihat komentar _stream_guard di
+        # beli-paket: iterasi langsung memblokir event loop.
         try:
-            for chunk in _stream_detail_events(family, n, ctx.get("active_xl"), want, disconnected):
+            async for chunk in iterate_in_threadpool(_stream_detail_events(family, n, ctx.get("active_xl"), want, disconnected)):
                 yield chunk
         finally:
             disconnected.set()
@@ -5324,7 +5416,7 @@ def _process_payment(active_xl, fam_key, option_number, method):
                     elif method == "qris":
                         from app.client.purchase.qris import show_qris_payment
                         _api_delay()
-                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", False)
+                        qris_result = _settle_with_decoy(show_qris_payment, tokens, items, detail, "qris", use_decoy, decoy_name)
                         if isinstance(qris_result, tuple) and qris_result:
                             qris_b64, _, qris_remaining = qris_result
                             if qris_b64:
@@ -5343,9 +5435,11 @@ def _process_payment(active_xl, fam_key, option_number, method):
                 except Exception as e:
                     pay_error = f"Error: {e}"
             else:
-                pay_error = "Paket tidak ditemukan."
+                # Bisa jadi fetch gagal (network/token blip) — jangan timpa
+                # error asli dengan "Paket tidak ditemukan" yang menyesatkan.
+                pay_error = pay_error or "Paket tidak ditemukan."
         else:
-            pay_error = "Akun XL tidak aktif."
+            pay_error = pay_error or "Akun XL tidak aktif."
     pay_extra["terminal_output"] = _stdout_buf.getvalue()
     return detail, pay_error, pay_success, pay_extra
 
@@ -5498,33 +5592,31 @@ def _checkout_detail(active_xl, fetch_fn):
 
 
 _decoy_price_cache: dict = {}
-# Cache harga decoy mengikuti masa sesi login (ACCESS_TOKEN_EXPIRE_MINUTES),
-# selaras dengan TTL cache paket di sisi browser (570 detik utk 9.5 menit).
-_DECOY_PRICE_TTL = int(float(ACCESS_TOKEN_EXPIRE_MINUTES) * 60)
+# Cache harga decoy 570 detik — selaras dengan cache paket sisi browser dan
+# umur token XL (~9,5 menit). Harga live saat settle tetap sumber kebenaran;
+# cache ini hanya agar tampilan checkout mendekati yang ditagih.
+_DECOY_PRICE_TTL = 570
 
 
-def _qris_decoy_price(active_xl=None, name="default"):
-    """Harga decoy QRIS yang dipakai di settlement (live dari API).
+def _decoy_live_price(active_xl=None, ptype="qris", name="default"):
+    """Harga decoy (live dari API) untuk tampilan checkout — qris & balance.
 
-    Checkout menampilkan harga ini agar total QRIS di layar == total yang
-    benar-benar ditagih. Hanya harga hasil fetch live yang di-cache; kalau
-    fetch gagal fallback 0 (harga tak tersimpan — resolve selalu live).
+    Checkout menampilkan harga ini agar total di layar == total yang
+    benar-benar ditagih (settle juga resolve live). Kalau fetch gagal,
+    pakai harga cache terakhir yang pernah berhasil (bukan 0) supaya
+    tampilan tidak menyimpang dari yang akan ditagih.
     Cache di-kunci per akun XL (harga decoy bisa beda antar nomor).
     """
     acct_key = f"{active_xl.id}" if (active_xl and active_xl.id) else "?"
-    cache_key = f"qris:{acct_key}:{name}"
-    entry = _decoy_price_cache.get(cache_key)
-    if entry and entry[1] > time.time():
-        return entry[0]
+    cache_key = f"{ptype}:{acct_key}:{name}"
     try:
         from app.service.decoy import build_decoy_item
-        price = 0
         if active_xl and active_xl.refresh_token:
             _api_delay()
             tokens = _get_xl_tokens(active_xl)
             if tokens:
                 _api_delay()
-                row = _decoy_row_by_name("qris", name)
+                row = _decoy_row_by_name(ptype, name)
                 if row is not None:
                     item = build_decoy_item(API_KEY, tokens, _decoy_config(row))
                     if item:
@@ -5534,7 +5626,9 @@ def _qris_decoy_price(active_xl=None, name="default"):
                         return price
     except Exception:
         pass
-    return price
+    # Fetch gagal: fallback harga terakhir yang pernah diketahui (meski basi).
+    stale = _decoy_price_cache.get(cache_key)
+    return stale[0] if stale else 0
 
 
 def _checkout_context(active_xl, user, detail, method, family_key, option_number=None):
@@ -5565,11 +5659,12 @@ def _checkout_context(active_xl, user, detail, method, family_key, option_number
     decoy_extra = 0
     decoy_threshold = 0
     if decoy:
+        # Harga decoy live (per akun) untuk kedua metode — qris ditambahkan
+        # ke total, balance dipakai sebagai threshold peringatan pulsa.
+        decoy_threshold = _decoy_live_price(active_xl, method, decoy_name)
         if method == "qris":
-            decoy_extra = _qris_decoy_price(active_xl, decoy_name)
-        elif method == "balance":
-            from app.service.decoy import load_decoy_config
-            decoy_threshold = int((load_decoy_config("balance", decoy_name) or {}).get("price") or 0)
+            decoy_extra = decoy_threshold
+            decoy_threshold = 0
     price = int(base_price or 0) + int(decoy_extra or 0)
     return {
         "detail": detail,
@@ -5751,7 +5846,17 @@ def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method, fe
             "ok": False,
             "message": f"Saldo panel tidak cukup untuk biaya konsumsi ({_fmt_idr(fee)} IDR). Topup dulu ya."
         }, status_code=400)
-    detail, pay_error, pay_success, pay_extra = run_purchase()
+    try:
+        detail, pay_error, pay_success, pay_extra = run_purchase()
+    except Exception as e:
+        # run_purchase melempar di luar try internal-nya (mis. DB locked di
+        # decoy override) — fee jangan hangus tanpa refund.
+        print(f"[pay-with-fee] purchase error: {e}")
+        _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
+        return JSONResponse({
+            "ok": False,
+            "message": "Terjadi kesalahan saat memproses pembelian — biaya konsumsi sudah dikembalikan. Coba lagi."
+        }, status_code=500)
     if not pay_success:
         _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
     return _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number, pay_extra,
@@ -5881,8 +5986,8 @@ def _credit_topup(db: Session, topup: TopupTransaction):
             "status": "paid",
             "paid_at": datetime.now(timezone.utc),
         }, synchronize_session=False)
-        db.commit()
         if not updated:
+            db.rollback()
             return None
         with _balance_lock:
             bal = db.query(Balance).filter(Balance.user_id == topup.user_id).first()
@@ -5896,6 +6001,10 @@ def _credit_topup(db: Session, topup: TopupTransaction):
                 type="topup",
                 description=f"Topup saldo via QRIS ({_fmt_idr(topup.total)} IDR, termasuk biaya admin {_fmt_idr(topup.fee)} IDR)"
             ))
+            # Satu commit untuk flip status + kredit saldo: kalau terpisah,
+            # commit kedua yang gagal meninggalkan topup 'paid' tanpa saldo
+            # terkredit (dan guard atomic mencegah retry) — uang masuk,
+            # saldo tidak bertambah, permanen.
             db.commit()
         if _ab_read_state().get("notif_topup_qris"):
             u = db.query(User).filter(User.id == topup.user_id).first()
@@ -6270,7 +6379,17 @@ def topup_check(topup_id: int = Form(...), user: User = Depends(get_current_user
                 "message": f"Tunggu {left // 60}m {left % 60}s sebelum cek pembayaran lagi."
             })
         result = _check_and_settle_topup(db, row)
-        result["cooldown"] = TOPUP_MANUAL_CHECK_COOLDOWN
+        if result.get("status") == "unknown":
+            # Gateway tidak dijangkau: jangan bakar cooldown 5 menit —
+            # pembayaran yang sudah masuk bisa tak terlihat. Reset klaim
+            # cooldown agar user boleh cek lagi segera.
+            db.query(TopupTransaction).filter(TopupTransaction.id == row.id).update(
+                {"last_checked_at": None}, synchronize_session=False)
+            db.commit()
+            result["cooldown"] = 0
+            result["message"] = result.get("message") or "Gagal cek ke gateway — coba lagi sebentar."
+        else:
+            result["cooldown"] = TOPUP_MANUAL_CHECK_COOLDOWN
         return JSONResponse(result)
     finally:
         db.close()
@@ -6369,9 +6488,19 @@ def register(
         role="user"
     )
     db.add(user)
-    db.flush()
-    db.add(Balance(user_id=user.id, balance=0))
-    db.commit()
+    try:
+        db.flush()
+        db.add(Balance(user_id=user.id, balance=0))
+        db.commit()
+    except IntegrityError:
+        # Race: dua register paralel dengan username/email sama lolos cek
+        # di atas — constraint DB menangkapnya. Jangan 500 mentah.
+        db.rollback()
+        _login_record_failure(attempt_key)
+        return render("register.html", context={
+            "request": request,
+            "error": "Username atau email sudah terdaftar"
+        }, status_code=400)
     _login_reset(attempt_key)
     get_user_ax_fp(user.username)
 
