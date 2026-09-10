@@ -2038,12 +2038,22 @@ def admin_penghasilan(request: Request, user: User = Depends(get_current_user)):
     if metric not in ("topup", "used"):
         metric = "topup"
     period = request.query_params.get("range", "today")
-    trx_type = "topup" if metric == "topup" else "purchase"
     start = _income_range_start(period)
-    rows = db.query(BalanceTransaction).filter(
-        BalanceTransaction.type == trx_type,
-        BalanceTransaction.created_at >= start,
-    ).order_by(BalanceTransaction.created_at.desc()).all()
+    if metric == "topup":
+        rows = db.query(BalanceTransaction).filter(
+            BalanceTransaction.type == "topup",
+            BalanceTransaction.created_at >= start,
+        ).order_by(BalanceTransaction.created_at.desc()).all()
+    else:
+        # "Total Dipakai" = fee yang BENAR-BENAR tertahan. Pembelian gagal
+        # meninggalkan pasangan purchase (-fee) lalu refund (+fee) — kalau
+        # hanya purchase yang dihitung, setiap gagal bayar jadi "penghasilan"
+        # hantu (refund tidak pernah mengurangi). Hitung NETO bertanda:
+        # purchase +750, refund -750 → gagal = 0, sukses = fee.
+        rows = db.query(BalanceTransaction).filter(
+            BalanceTransaction.type.in_(("purchase", "refund")),
+            BalanceTransaction.created_at >= start,
+        ).order_by(BalanceTransaction.created_at.desc()).all()
 
     # For topups, the real income is what the user PAID (base amount + unique
     # code fee). The ledger only stores the credited base, so match each row
@@ -2074,12 +2084,17 @@ def admin_penghasilan(request: Request, user: User = Depends(get_current_user)):
     details = []
     for r in rows:
         u = db.query(User).filter(User.id == r.user_id).first()
-        amount = abs(r.amount) + (_match_fee(r) if metric == "topup" else 0)
+        if metric == "topup":
+            amount = abs(r.amount) + _match_fee(r)
+        else:
+            # Bertanda: purchase = +fee, refund = -fee (neto gagal-bayar = 0).
+            amount = -r.amount
         total += amount
         details.append({
             "ts": _fmt_wib(r.created_at) if r.created_at else "—",
             "username": u.username if u else f"user #{r.user_id}",
             "amount": amount,
+            "refund": r.type == "refund",
         })
     db.close()
     return render("admin/penghasilan.html", context={

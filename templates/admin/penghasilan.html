@@ -85,7 +85,7 @@
             <tr>
                 <td data-label="Waktu">{{ d.ts }}</td>
                 <td data-label="User">{{ d.username }}</td>
-                <td data-label="Jumlah" class="amount-col">{{ d.amount|rupiah }} IDR</td>
+                <td data-label="Jumlah" class="amount-col"{% if d.refund %} style="color:#dc2626;" data-label="Refund"{% endif %}>{{ d.amount|rupiah }} IDR</td>
             </tr>
             {% else %}
             <tr><td colspan="3" class="empty-state">Belum ada transaksi pada periode ini.</td></tr>
