@@ -634,8 +634,10 @@ def admin_home(request: Request, user: User = Depends(get_current_user)):
             TopupTransaction.paid_at >= day_start_utc.replace(tzinfo=None),
         ).scalar() or 0
         topup_today += fee_today
+        # Neto refund juga (purchase -fee, refund +fee) — pembelian gagal
+        # tidak boleh dihitung "dipakai" (lihat /admin/penghasilan).
         used_today = -(db.query(func.coalesce(func.sum(BalanceTransaction.amount), 0)).filter(
-            BalanceTransaction.type == "purchase",
+            BalanceTransaction.type.in_(("purchase", "refund")),
             BalanceTransaction.created_at >= day_start_utc,
         ).scalar() or 0)
     finally:
