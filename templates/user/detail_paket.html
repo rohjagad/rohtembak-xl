@@ -269,8 +269,8 @@ function streamDetail(famParam) {
     if (typeof checkSessionExpired === 'function') checkSessionExpired();
   });
 }
-function loadDetail() {
-  if (!('caches' in window)) { streamDetail('meta,detail'); return; }
+function loadDetail(force) {
+  if (!('caches' in window) || force) { streamDetail('meta,detail'); return; }
   var cacheJob = caches.open(DETAIL_CACHE_NAME).then(function(cache) {
     return Promise.all([
       cache.match(DETAIL_CACHE_META).then(function(r) { return r ? r.json() : null; }),
@@ -292,7 +292,8 @@ function refreshPageData() {
   DETAIL_RENDERED = false;
   var root = document.getElementById('detail-root');
   if (root) root.innerHTML = '<div class="card detail-loading"><div class="skel-spinner"></div><div class="detail-loading-text">Memuat detail paket...</div></div>';
-  loadDetail();
+  // Refresh Data = bypass cache — admin bisa mengubah harga/opsi kapan saja.
+  loadDetail(true);
 }
 </script>
 {% endif %}

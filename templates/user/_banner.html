@@ -98,8 +98,8 @@ function bannerSetInfo(xi) {
 }
 var BANNER_CACHE_NAME = 'banner';
 var BANNER_CACHE_TTL = 570;
-var XL_ID = "{{ active_xl.phone_number if active_xl else '' }}";
-var BANNER_CACHE_REQ = new Request('/banner-cache/' + XL_ID + '/info');
+ var BANNER_XL_ID = "{{ active_xl.phone_number if active_xl else '' }}";
+ var BANNER_CACHE_REQ = new Request('/banner-cache/' + BANNER_XL_ID + '/info');
 function bannerCachePut(xi) {
   if (!('caches' in window) || !xi) return;
   caches.open(BANNER_CACHE_NAME).then(function(cache) {

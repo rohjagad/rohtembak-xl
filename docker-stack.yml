@@ -2,13 +2,16 @@ services:
   rohtembak-xl:
     # PRODUCTION (branch main). Repo private: pada deploy fresh, buat repo
     # public sementara agar clone / curl raw.githubusercontent berhasil,
-    # lalu kembalikan ke private setelah stack jalan.
+    # lalu kembalikan ke private setelah stack jalan. Untuk update saat repo
+    # sudah private, set remote ber-token SEKALI di dalam container:
+    #   docker exec <container> bash -c     #     "cd /opt/rohtembak && git remote set-url origin https://<PAT>@github.com/rohjagad/rohtembak-xl"
+    # setelah itu `git pull --ff-only` tetap jalan tanpa repo public.
     #
     # TIDAK AUTO-UPDATE: app hanya di-clone sekali; perubahan di GitHub tidak
     # masuk otomatis. Update manual:
     #   docker exec <container> bash -c "cd /opt/rohtembak && git pull --ff-only"
     #   docker service update --force rohtembak-xl
-    image: quay.io/toolbx-images/debian-toolbox:12
+    image: debian:12
     environment:
       APP_PORT: 8000
       INSTALL_DIR: /opt/rohtembak
@@ -21,6 +24,8 @@ services:
       replicas: 1
       placement:
         constraints:
+          # Volume rohtembak_data bersifat LOKAL per-node — constraint ini
+          # menjaga service & datanya selalu di satu node yang sama.
           - node.hostname == stb3
       restart_policy:
         condition: any

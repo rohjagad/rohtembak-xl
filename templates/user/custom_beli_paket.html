@@ -182,8 +182,10 @@ function browsePin(idx) {
   fetch('/user/xl/custom/browse?pin=' + idx, { credentials: 'same-origin' })
     .then(function(r) { return r.json(); })
     .then(function(res) {
-      box.dataset.loaded = '1';
       if (res.ok) {
+        // Tandai loaded HANYA saat sukses — pin yang gagal (config salah /
+        // family invalid) harus bisa di-retry dengan buka-tutup section.
+        box.dataset.loaded = '1';
         renderGrid(box, res.items, { pin: idx });
       } else {
         box.innerHTML = '<div class="pkg-error">' + escHtml(res.error || 'Gagal memuat katalog pin.') + '</div>';

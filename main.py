@@ -867,6 +867,7 @@ def admin_decoys_page(request: Request, user: User = Depends(get_current_user)):
         "decoys": {"qris": _list_decoys("qris"), "balance": _list_decoys("balance")},
         "error": request.query_params.get("error"),
         "updated": request.query_params.get("updated"),
+        "deleted": request.query_params.get("deleted"),
     })
 
 
@@ -1005,7 +1006,7 @@ def admin_decoy_delete(
             db.commit()
     finally:
         db.close()
-    return RedirectResponse(url="/admin/decoys?updated=1", status_code=303)
+    return RedirectResponse(url="/admin/decoys?deleted=1", status_code=303)
 
 
 # Cache nama paket utk /prices-xl: LIVE dari API XL, di-cache di memori selama

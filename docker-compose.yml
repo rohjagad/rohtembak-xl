@@ -14,7 +14,7 @@ services:
       INSTALL_DIR: /opt/rohtembak
     volumes:
       - rohtembak_data:/opt/rohtembak
-      - ./entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
+      - ./entrypoint.sh:/usr/local/bin/entrypoint.sh:ro,Z
     restart: unless-stopped
     stop_grace_period: 30s
     entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]

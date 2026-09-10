@@ -41,6 +41,22 @@ docker compose up -d
 Buka `http://localhost:8000` — login `admin` / `admin`.
 
 > Pada host cgroup v2, jika container gagal start, tambahkan `cgroupns: host` pada service di `docker-compose.yml`.
+> Pada host SELinux enforcing (Fedora/Silverblue), bind mount entrypoint sudah memakai relabel `:Z` — jangan dihapus.
+
+## Update aplikasi
+
+Perubahan di GitHub TIDAK masuk otomatis. Update manual setelah `git push`:
+
+```bash
+docker exec rohtembak bash -c "cd /opt/rohtembak && git pull --ff-only"
+docker restart rohtembak
+```
+
+Swarm: `docker exec <container> bash -c "cd /opt/rohtembak && git pull --ff-only"` lalu `docker service update --force rohtembak-xl`.
+
+> Repo private: set remote ber-token SEKALI agar `git pull` tetap jalan
+> setelah repo dikembalikan private:
+> `docker exec rohtembak bash -c "cd /opt/rohtembak && git remote set-url origin https://<PAT>@github.com/rohjagad/rohtembak-xl"`
 
 ## Deployment notes
 

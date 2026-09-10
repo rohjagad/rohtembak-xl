@@ -138,7 +138,7 @@
         <h3>Sesi Berakhir</h3>
         <p class="modal-body">Sesi login Anda telah berakhir. Silakan masuk kembali untuk melanjutkan.</p>
         <div class="modal-actions">
-            <button type="button" class="btn btn-primary" onclick="location.href='{% if user.role == 'admin' %}/admin/login{% else %}/login{% endif %}'">Login ulang</button>
+            <button type="button" class="btn btn-primary" onclick="location.href='{% if user and user.role == 'admin' %}/admin/login{% else %}/login{% endif %}'">Login ulang</button>
         </div>
     </div>
 </div>

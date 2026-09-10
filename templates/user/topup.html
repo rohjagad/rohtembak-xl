@@ -83,6 +83,7 @@
 var currentTopupId = null;
 var qrExpires = 0;
 var qrTimerInt = null;
+var qrShown = false;
 var COOLDOWN = {{ topup_check_cooldown }};
 
 function fmtIdr(n) {
@@ -202,6 +203,7 @@ function showQr(src, expires, amount, fee, total) {
   document.getElementById('qr-nominal').textContent = fmtIdr(amount) + ' IDR';
   document.getElementById('qr-fee').textContent = fmtIdr(fee) + ' IDR';
   document.getElementById('qr-total').textContent = fmtIdr(total) + ' IDR';
+  qrShown = true;
   setQrViewState('pay');
   resetCheckBtn();
   var ov = document.getElementById('qr-overlay');
@@ -313,6 +315,7 @@ function checkStatus() {
     })
     .catch(function() {
       if (btn) resetCheckBtn();
+      alert('Gagal terhubung — periksa koneksi lalu cek lagi.');
     });
 }
 
@@ -327,9 +330,12 @@ function closeQr(reload) {
   currentQrParams = null;
   currentTopupId = null;
   if (reload && wasPaid) { location.reload(); return; }
-  if (!wasPaid) {
+  // Nag hanya bila QR benar-benar sempat tampil — menutup overlay saat
+  // loading/error bukan "menutup QRIS tak sengaja".
+  if (!wasPaid && qrShown) {
     document.getElementById('qrisClosedModal').classList.add('show');
   }
+  qrShown = false;
 }
 function closeQrisClosedModal() {
   document.getElementById('qrisClosedModal').classList.remove('show');

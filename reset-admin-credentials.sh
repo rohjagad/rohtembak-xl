@@ -13,7 +13,7 @@ set -euo pipefail
 # It can be run from any working directory (e.g. your home dir) - no need
 # to cd into the app folder first:
 #
-#   sudo bash /opt/rohtembak/reset-admin-credentials.sh
+#   docker exec -it rohtembak bash /opt/rohtembak/reset-admin-credentials.sh
 #   # or, if you copied it elsewhere:
 #   sudo bash ~/reset-admin-credentials.sh
 #

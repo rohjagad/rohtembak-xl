@@ -47,7 +47,7 @@
     font-weight: 600; color: #059669; font-size: 15px;
   }
   .decoys-table td.num::before {
-    content: "Harga"; display: block; margin-bottom: 4px;
+    content: "Order"; display: block; margin-bottom: 4px;
     font-size: 10.5px; font-weight: 600;
     text-transform: uppercase; letter-spacing: .5px; color: #9ca3af;
   }
@@ -75,6 +75,7 @@
 {% elif error == 'field' %}<div class="error-msg">Family code &amp; variant code wajib diisi.</div>
 {% elif error == 'name' %}<div class="error-msg">Nama decoy tidak valid.</div>
 {% elif updated %}<div style="color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;padding:10px 14px;border-radius:8px;font-size:13.5px;margin-bottom:14px;">Tersimpan.</div>
+{% elif deleted %}<div style="color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;padding:10px 14px;border-radius:8px;font-size:13.5px;margin-bottom:14px;">Decoy terhapus.</div>
 {% endif %}
 
 {% for t, tlabel in [("qris", "QRIS"), ("balance", "Pulsa")] %}

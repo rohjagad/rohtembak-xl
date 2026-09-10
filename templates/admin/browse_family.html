@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Browse: {{ label }} - RohTembak (XL){% endblock %}
+{% block head %}
+<style>
+.table-wrap { overflow-x: auto; }
+</style>
+{% endblock %}
 {% block content %}
 
 <div class="header-section">
@@ -20,6 +25,7 @@
 
 {% if rows %}
 <div class="card">
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -54,6 +60,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endif %}
 

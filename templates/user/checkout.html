@@ -147,7 +147,7 @@ function payNow() {
   // rw dinormalisasi ke integer (sama seperti yang tampil di ringkasan) —
   // hindari beda nominal antara layar & yang ditagih (mis. "50000.75"/"1e3").
   var rw = normRw();
-  var url = PAY_URL.replace('__DECOY__', decoy).replace('__RW__', rw);
+  var url = PAY_URL.replace('__DECOY__', encodeURIComponent(decoy)).replace('__RW__', encodeURIComponent(rw));
 
   fetch(url, {method: 'POST'})
     .then(function(r) { return r.json(); })
@@ -161,7 +161,7 @@ function payNow() {
           + '<span class="t-prompt">$</span> ' + escapeHtml(res.message || '') + '\n'
           + '<span class="t-prompt">$</span> saldo terpotong : ' + (res.deducted != null ? Number(res.deducted).toLocaleString('id-ID') + ' IDR' : '-') + '\n'
           + '<span class="t-prompt">$</span> sisa saldo      : ' + (res.new_balance != null ? Number(res.new_balance).toLocaleString('id-ID') + ' IDR' : '-');
-        if (res.qris_img) showQr(res.qris_img, res.qris_expires_ts || 0);
+        if (res.qris_img) { paySucceeded = true; showQr(res.qris_img, res.qris_expires_ts || 0); }
       } else {
         var out = res.terminal_output || '';
         box.innerHTML = '<span class="t-title">result</span><span class="t-prompt">$</span> <span class="t-err">GAGAL</span>\n'
@@ -196,6 +196,7 @@ function showQr(src, expires) {
 }
 var qrExpires = 0;
 var qrTimerInt = null;
+var paySucceeded = false;
 function tickQrTimer() {
   var el = document.getElementById('qr-timer');
   if (!el) return;
@@ -213,6 +214,8 @@ function closeQr() {
   document.getElementById('qr-overlay').classList.remove('show');
   if (qrTimerInt) clearInterval(qrTimerInt);
   qrTimerInt = null;
+  // QR yang ditutup SETELAH pembayaran sukses bukan "tertutup tak sengaja".
+  if (paySucceeded) return;
   document.getElementById('qrisClosedModal').classList.add('show');
 }
 function closeQrisClosedModal() {

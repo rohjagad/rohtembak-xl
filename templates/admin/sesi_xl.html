@@ -256,7 +256,7 @@
     document.addEventListener("click", function (e) {
       if (userCombo.closest(".combo-wrap") && !userCombo.closest(".combo-wrap").contains(e.target)) userSuggest.hidden = true;
     });
-    var initialUser = "{{ admin_active_username or '' }}";
+    var initialUser = {{ (admin_active_username or '') | tojson }};
     if (initialUser) filterAccts(initialUser);
     else filterAccts("");
   }

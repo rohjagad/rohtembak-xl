@@ -150,8 +150,8 @@ function renderDetail(d) {
   h += '<div style="padding:16px 24px;">';
   h += '<h3 style="font-size:.85rem;text-transform:uppercase;letter-spacing:.5px;color:#888;margin:0 0 10px;">Pilih Pembayaran</h3>';
   h += '<div class="pay-grid">';
-  h += '<a class="pay-btn" href="javascript:void(0)" onclick="location.href=payHref(\'balance\')">Pulsa<span class="sub">Bayar dengan pulsa XL</span></a>';
-  h += '<a class="pay-btn" href="javascript:void(0)" onclick="location.href=payHref(\'qris\')">QRIS<span class="sub">Bayar dengan QRIS</span></a>';
+  h += '<a class="pay-btn" href="' + payHref('balance') + '">Pulsa<span class="sub">Bayar dengan pulsa XL</span></a>';
+  h += '<a class="pay-btn" href="' + payHref('qris') + '">QRIS<span class="sub">Bayar dengan QRIS</span></a>';
   h += '</div></div>';
   h += '</div>';
   document.getElementById('detail-root').innerHTML = h;

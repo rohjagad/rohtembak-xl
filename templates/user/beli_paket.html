@@ -321,6 +321,10 @@ function streamData(famParam) {
     if (e) e.hidden = false;
     src.close();
     if (typeof checkSessionExpired === 'function') checkSessionExpired();
+    // Stream putus di tengah: box yang belum ke-render tetap spinner
+    // selamanya kalau tidak di-finish di sini.
+    payload.last_refresh = fmtDateTime(new Date());
+    finishBoxes(payload);
   });
 }
 
@@ -386,10 +390,18 @@ function applyBoxState() {
     c.classList.toggle('up', !collapsed);
   });
 }
+var _lastNarrow = null;
 document.addEventListener('DOMContentLoaded', function() {
   applyBoxState();
+  _lastNarrow = window.innerWidth < 900;
   loadData();
-  window.addEventListener('resize', applyBoxState);
+  // Terapkan ulang collapse hanya saat MELEWATI threshold 900px — resize
+  // di dalam rentang sama (address bar HP muncul/hilang saat scroll) tidak
+  // boleh menutup section yang sedang user buka.
+  window.addEventListener('resize', function() {
+    var narrow = window.innerWidth < 900;
+    if (narrow !== _lastNarrow) { _lastNarrow = narrow; applyBoxState(); }
+  });
 });
 </script>
 {% endblock %}
