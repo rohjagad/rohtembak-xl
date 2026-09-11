@@ -128,6 +128,23 @@ function setRewritePrice() {
   else el.value = n;
   updateSum();
 }
+function showEwalletWindow(link) {
+  var ov = document.getElementById('ewallet-overlay');
+  document.getElementById('ewallet-link-text').textContent = link;
+  document.getElementById('ewallet-go').href = link;
+  ov.classList.add('show');
+}
+function closeEwalletWindow() {
+  document.getElementById('ewallet-overlay').classList.remove('show');
+}
+function copyEwalletLink() {
+  var t = document.getElementById('ewallet-link-text').textContent;
+  if (navigator.clipboard) navigator.clipboard.writeText(t);
+  var b = document.getElementById('ewallet-copy');
+  var prev = b.textContent;
+  b.textContent = 'Tersalin!';
+  setTimeout(function() { b.textContent = prev; }, 1500);
+}
 function payNow() {
   var btn = document.getElementById('pay-btn');
   var box = document.getElementById('terminal-box');
@@ -264,23 +281,6 @@ document.addEventListener('DOMContentLoaded', function () {
       el.innerHTML = '<strong>Penting:</strong> Harga decoy tidak diketahui (gagal resolve) — pastikan pulsa nomor di bawah harga decoy agar decoy yang terpotong, bukan pulsa utama.';
     }
     el.hidden = false;
-  }
-  function showEwalletWindow(link) {
-    var ov = document.getElementById('ewallet-overlay');
-    document.getElementById('ewallet-link-text').textContent = link;
-    document.getElementById('ewallet-go').href = link;
-    ov.classList.add('show');
-  }
-  function closeEwalletWindow() {
-    document.getElementById('ewallet-overlay').classList.remove('show');
-  }
-  function copyEwalletLink() {
-    var t = document.getElementById('ewallet-link-text').textContent;
-    if (navigator.clipboard) navigator.clipboard.writeText(t);
-    var b = document.getElementById('ewallet-copy');
-    var old = b.textContent;
-    b.textContent = 'Tersalin!';
-    setTimeout(function() { b.textContent = old; }, 1500);
   }
   function bindWalletUI() {
     var wt = document.getElementById('wallet-type');
