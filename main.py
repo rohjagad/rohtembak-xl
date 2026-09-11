@@ -6121,7 +6121,7 @@ def _pay_response(user, detail, pay_error, pay_success, method, family_key, opti
             pkg_number = (detail or {}).get("number")
             if pkg_number:
                 pkg_name = f"{pkg_name} (#{pkg_number})"
-            metode_label = {"balance": "via Pulsa XL", "qris": "via QRIS XL"}.get(method, method)
+            metode_label = {"balance": "via Pulsa XL", "qris": "via QRIS XL", "ewallet": "via E-Wallet XL"}.get(method, method)
             _notify(
                 "🟢  " + _tg_bold("PEMBELIAN PAKET") + "\n\n"
                 "<blockquote>"
