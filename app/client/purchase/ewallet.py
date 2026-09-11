@@ -170,11 +170,7 @@ def settlement_ewallet(
         decrypted_body = decrypt_xdata(api_key, json.loads(resp.text))
         if not isinstance(decrypted_body, dict):
             return {"status": "UNKNOWN", "message": "Respon XL tidak terbaca."}
-        if decrypted_body.get("status") == "SUCCESS":
-            # Deeplink belum selalu ada — dump bentuk data sekali untuk
-            # memetakan key yang benar (deeplink/redirect_url/dll).
-            data = decrypted_body.get("data") or {}
-            print(f"[settlement-ewallet] deeplink={data.get('deeplink')!r} ticket={data.get('ticket_number')!r} method={data.get('payment_method')!r}")
+
         return decrypted_body
     except Exception as e:
         print("[decrypt err]", e)
