@@ -4936,7 +4936,7 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
     for d in _list_decoys("balance" if method == "balance" else "qris"):
         # Harga decoy live dari API untuk kedua metode (qris & balance),
         # per akun — sama dengan yang di-resolve saat settlement.
-        decoy_price = _decoy_live_price(active_xl, method, d["name"])
+        decoy_price = _decoy_live_price(active_xl, "balance" if method == "balance" else "qris", d["name"])
         decoy_options.append({
             "name": d["name"],
             "label": (d.get("label") or d["name"]),
@@ -5858,10 +5858,10 @@ def _checkout_context(active_xl, user, detail, method, family_key, option_number
     decoy_extra = 0
     decoy_threshold = 0
     if decoy:
-        # Harga decoy live (per akun) untuk kedua metode — qris ditambahkan
-        # ke total, balance dipakai sebagai threshold peringatan pulsa.
-        decoy_threshold = _decoy_live_price(active_xl, method, decoy_name)
-        if method == "qris":
+        # Harga decoy live (per akun) untuk kedua kategori — qris/ewallet
+        # ditambahkan ke total, balance dipakai sebagai threshold peringatan.
+        decoy_threshold = _decoy_live_price(active_xl, "balance" if method == "balance" else "qris", decoy_name)
+        if method in ("qris", "ewallet"):
             decoy_extra = decoy_threshold
             decoy_threshold = 0
     price = int(base_price or 0) + int(decoy_extra or 0)
