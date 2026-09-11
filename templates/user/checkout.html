@@ -149,7 +149,12 @@ function payNow() {
   var rw = normRw();
   var url = PAY_URL.replace('__DECOY__', encodeURIComponent(decoy)).replace('__RW__', encodeURIComponent(rw));
 
-  fetch(url, {method: 'POST'})
+  var body = null;
+  var wt = document.getElementById('wallet-type');
+  if (wt) {
+    body = new URLSearchParams({ wallet_type: wt.value, wallet_number: (document.getElementById('wallet-number') || {}).value || '' });
+  }
+  fetch(url, {method: 'POST', body: body})
     .then(function(r) { if (r.status === 401) { location.href = '/login'; return Promise.reject('session'); } return r.json(); })
     .then(function(res) {
       stopPayDots();
@@ -161,6 +166,13 @@ function payNow() {
           + '<span class="t-prompt">$</span> ' + escapeHtml(res.message || '') + '\n'
           + '<span class="t-prompt">$</span> saldo terpotong : ' + (res.deducted != null ? Number(res.deducted).toLocaleString('id-ID') + ' IDR' : '-') + '\n'
           + '<span class="t-prompt">$</span> sisa saldo      : ' + (res.new_balance != null ? Number(res.new_balance).toLocaleString('id-ID') + ' IDR' : '-');
+        if (res.deeplink) {
+          paySucceeded = true;
+          box.innerHTML += '\n<div id="deeplink-wrap" style="margin-top:12px;">'
+            + '<a class="btn btn-primary" style="width:auto;" href="' + escapeHtml(res.deeplink) + '">Buka Aplikasi &amp; Bayar &rarr;</a>'
+            + '<div style="margin-top:8px;font-size:.75rem;color:#6b7280;word-break:break-all;">' + escapeHtml(res.deeplink) + '</div>'
+            + '</div>';
+        }
         if (res.qris_img) { paySucceeded = true; showQr(res.qris_img, res.qris_expires_ts || 0); }
       } else {
         var out = res.terminal_output || '';
@@ -256,6 +268,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     el.hidden = false;
   }
+  function bindWalletUI() {
+    var wt = document.getElementById('wallet-type');
+    if (!wt) return;
+    var wrap = document.getElementById('wallet-number-wrap');
+    function sync() {
+      var needs = (wt.value === 'DANA' || wt.value === 'OVO');
+      if (wrap) wrap.style.display = needs ? '' : 'none';
+    }
+    wt.addEventListener('change', sync);
+    sync();
+  }
+  document.addEventListener('DOMContentLoaded', bindWalletUI);
   function pickDecoy(d) {
     val.value = d.name;
     label.textContent = d.label;
@@ -377,6 +401,24 @@ document.addEventListener('DOMContentLoaded', function () {
             <input type="hidden" id="decoy-val" value="">
         </div>
         <div style="margin-top:8px;font-size:.78rem;color:#6b7280;">Decoy menambah item agar nominal pembayaran berbeda dari harga paket. Biaya decoy ditambahkan di atas harga paket &amp; biaya saldo panel.</div>
+    </div>
+    {% endif %}
+
+    {% if method == "ewallet" %}
+    <div style="margin-top:16px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:14px 16px;max-width:480px;">
+      <div style="font-weight:600;font-size:.82rem;color:#3730a3;margin-bottom:8px;">E-Wallet</div>
+      <label style="display:block;font-size:12px;font-weight:600;color:#111827;margin-bottom:4px;">Jenis e-wallet</label>
+      <select id="wallet-type" class="form-control" style="margin-bottom:10px;">
+        <option value="DANA">DANA</option>
+        <option value="SHOPEEPAY">ShopeePay</option>
+        <option value="GOPAY">GoPay</option>
+        <option value="OVO">OVO</option>
+      </select>
+      <div id="wallet-number-wrap">
+        <label style="display:block;font-size:12px;font-weight:600;color:#111827;margin-bottom:4px;">Nomor e-wallet</label>
+        <input type="text" id="wallet-number" class="form-control" placeholder="08xxxxxxxxxx" autocomplete="off" inputmode="numeric" style="margin-bottom:10px;">
+      </div>
+      <div style="font-size:.78rem;color:#6b7280;">DANA &amp; OVO butuh nomor (08xx). ShopeePay &amp; GoPay membuka aplikasi masing-masing. Instruksi pembayaran (deeplink) muncul setelah Bayar.</div>
     </div>
     {% endif %}
 

@@ -37,6 +37,7 @@ from auth import (
 
 from datetime import datetime, timezone, timedelta
 from app.client.ciam import get_otp as xl_get_otp, submit_otp as xl_submit_otp, get_new_token as xl_refresh_token
+from app.client.purchase.ewallet import settlement_ewallet as pay_ewallet, validate_wallet as validate_ewallet_wallet
 from app.client.encrypt import API_KEY, load_ax_fp, copy_shared_fp_to_user, remove_user_ax_fp, get_user_ax_fp, _safe_username
 from app.client.engsel import login_info as xl_login_info, get_balance as xl_get_balance, get_transaction_history as xl_get_transactions, get_tiering_info as xl_get_tiering, send_api_request, get_family as xl_get_family, get_package as xl_get_package, get_addons as xl_get_addons
 from app.menus.util import format_quota_byte
@@ -4932,7 +4933,7 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
     price = int(base_price or 0)
     remaining = balance - fee
     decoy_options = []
-    for d in _list_decoys(method):
+    for d in _list_decoys("balance" if method == "balance" else "qris"):
         # Harga decoy live dari API untuk kedua metode (qris & balance),
         # per akun — sama dengan yang di-resolve saat settlement.
         decoy_price = _decoy_live_price(active_xl, method, d["name"])
@@ -5104,16 +5105,22 @@ def user_xl_custom_checkout(request: Request, n: int, method: str, fc: str = "",
 
 @app.post("/user/xl/custom/{n}/pay/{method}")
 def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin: int = 0, rw: str = "",
-                       decoy: str = "", user: User = Depends(get_current_user)):
+                       decoy: str = "", wallet_type: str = Form(""), wallet_number: str = Form(""),
+                       user: User = Depends(get_current_user_api)):
     if user.role != "user":
         return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
     if method not in PAY_METHOD_LABELS:
         return JSONResponse({"ok": False, "message": "Metode pembayaran tidak tersedia."}, status_code=400)
+    if method == "ewallet":
+        wallet_type = (wallet_type or "").strip().upper()
+        err = validate_ewallet_wallet(wallet_type, wallet_number)
+        if err:
+            return JSONResponse({"ok": False, "message": err}, status_code=400)
     family_code = _resolve_custom_fc(fc, pin)
     if not family_code:
         return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
     decoy = (decoy or "").strip()
-    if decoy and decoy not in {d["name"] for d in _list_decoys(method)}:
+    if decoy and decoy not in {d["name"] for d in _list_decoys("balance" if method == "balance" else "qris")}:
         return JSONResponse({"ok": False, "message": "Decoy tidak ditemukan."}, status_code=400)
     charge = _parse_custom_rw(rw)
     fee = _custom_fee(family_code, n, method)
@@ -5124,11 +5131,12 @@ def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin:
     ctx = get_user_context(user, db)
     db.close()
     return _pay_with_fee(user, ctx,
-                         lambda: _process_payment_custom(ctx.get("active_xl"), family_code, n, method, charge, decoy),
+                         lambda: _process_payment_custom(ctx.get("active_xl"), family_code, n, method, charge, decoy,
+                                                         wallet_type, wallet_number),
                          CUSTOM_FAMILY_KEY, n, method, fee=fee)
 
 
-def _process_payment_custom(active_xl, family_code, option_number, method, charge, decoy_name=""):
+def _process_payment_custom(active_xl, family_code, option_number, method, charge, decoy_name="", wallet_type="", wallet_number=""):
     """Settle pembelian custom. Rewrite harga (charge) AMAN — BUKAN BUG —
     disengaja untuk group custom (tanpa override display/decoy admin).
     decoy_name (opsional) dipilih pembeli di halaman checkout — decoy dipakai
@@ -5176,12 +5184,24 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                                 pay_success = "QRIS berhasil dibuat di MyXL, tapi kode QR gagal dimuat. Buka Riwayat Transaksi XL untuk melihatnya."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
-                        elif isinstance(qris_result, dict) and qris_result.get("status") == "UNKNOWN":
-                            pay_error = "Status QRIS tidak diketahui (koneksi terputus) — transaksi MUNGKIN sudah terbentuk. CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
+                    elif method == "ewallet":
+                        _api_delay()
+                        res = _settle_with_decoy(pay_ewallet, tokens, items, detail, "ewallet", use_decoy, decoy_name,
+                                                 wallet=(wallet_type, wallet_number))
+                        if res and res.get("status") == "SUCCESS":
+                            deeplink = (res.get("data") or {}).get("deeplink") or ""
+                            pay_extra["deeplink"] = deeplink
+                            pay_extra["wallet_type"] = method
+                            if wallet_type == "OVO" or not deeplink:
+                                pay_success = f"Pembayaran e-wallet dibuat. Silakan buka aplikasi {wallet_type or 'e-wallet'} Anda untuk menyelesaikan pembayaran."
+                            else:
+                                pay_success = f"Instruksi pembayaran {wallet_type} dibuat — selesaikan lewat aplikasi {wallet_type}."
+                        elif res and res.get("status") == "UNKNOWN":
+                            pay_error = "Status pembayaran tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
                         else:
                             pay_error = _friendly_settle_msg(
-                                qris_result.get("message") if isinstance(qris_result, dict) else None,
-                                default="Gagal membuat QRIS."
+                                res.get("message") if isinstance(res, dict) else None,
+                                default=f"Pembayaran gagal: {res.get('message', 'No response') if isinstance(res, dict) else 'No response'}"
                             )
                     else:
                         pay_error = "Metode pembayaran tidak dikenal."
@@ -5502,16 +5522,22 @@ def _friendly_settle_msg(msg, default="Pembayaran gagal."):
     return default
 
 
-def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_name="default"):
+def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_name="default", wallet=None):
     # rewrite_price (dari /prices-xl) menang atas display/api — ini jumlah
     # yang benar-benar ditagih; item_price PaymentItem TETAP harga asli API.
     charge = detail.get("rewrite_price")
     if charge is None:
         charge = detail["price"]
+    wallet_type, wallet_number = (wallet or ("", ""))
     if not use_decoy:
+        if method == "ewallet":
+            return pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge,
+                          wallet_type=wallet_type, wallet_number=wallet_number)
         return pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge)
 
-    items_with_decoy, decoy_price = _append_decoy_item(items, tokens, method, decoy_name)
+    # Decoy per-metode: balance → decoy balance; qris/ewallet → decoy qris
+    # (kategori "bayar tunai via app" berbagi katalog decoy yang sama).
+    items_with_decoy, decoy_price = _append_decoy_item(items, tokens, "balance" if method == "balance" else "qris", decoy_name)
     if decoy_price is None:
         raise ValueError("Gagal memuat paket decoy.")
     overwrite_amount = int(charge or 0) + decoy_price
@@ -5519,10 +5545,14 @@ def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_n
     if method == "qris":
         return pay_fn(API_KEY, tokens, items_with_decoy, "SHARE_PACKAGE", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
 
+    if method == "ewallet":
+        return pay_fn(API_KEY, tokens, items_with_decoy, detail["payment_for"], False, overwrite_amount=overwrite_amount,
+                      token_confirmation_idx=1, wallet_type=wallet_type, wallet_number=wallet_number)
+
     return pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
 
 
-def _process_payment(active_xl, fam_key, option_number, method):
+def _process_payment(active_xl, fam_key, option_number, method, wallet_type="", wallet_number=""):
     pay_error = None
     pay_success = None
     detail = None
@@ -5530,7 +5560,8 @@ def _process_payment(active_xl, fam_key, option_number, method):
     # Decoy murni per-package: override pada /prices-xl menentukan satu-satunya
     # decoy untuk metode ini. Kosong/none = tanpa decoy.
     dq, dp = _pkg_decoy_override(fam_key, option_number)
-    href = dq if method == "qris" else dp
+    # ewallet = kategori "tunai via app" → pakai decoy qris.
+    href = dq if method in ("qris", "ewallet") else dp
     use_decoy = bool(href and href != "none")
     decoy_name = href if use_decoy else "default"
     _stdout_buf = io.StringIO()
@@ -5572,12 +5603,24 @@ def _process_payment(active_xl, fam_key, option_number, method):
                                 pay_success = "QRIS berhasil dibuat di MyXL, tapi kode QR gagal dimuat. Buka Riwayat Transaksi XL untuk melihatnya."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
-                        elif isinstance(qris_result, dict) and qris_result.get("status") == "UNKNOWN":
-                            pay_error = "Status QRIS tidak diketahui (koneksi terputus) — transaksi MUNGKIN sudah terbentuk. CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
+                    elif method == "ewallet":
+                        _api_delay()
+                        res = _settle_with_decoy(pay_ewallet, tokens, items, detail, "ewallet", use_decoy, decoy_name,
+                                                 wallet=(wallet_type, wallet_number))
+                        if res and res.get("status") == "SUCCESS":
+                            deeplink = (res.get("data") or {}).get("deeplink") or ""
+                            pay_extra["deeplink"] = deeplink
+                            pay_extra["wallet_type"] = method
+                            if wallet_type == "OVO" or not deeplink:
+                                pay_success = f"Pembayaran e-wallet dibuat. Silakan buka aplikasi {wallet_type or 'e-wallet'} Anda untuk menyelesaikan pembayaran."
+                            else:
+                                pay_success = f"Instruksi pembayaran {wallet_type} dibuat — selesaikan lewat aplikasi {wallet_type}."
+                        elif res and res.get("status") == "UNKNOWN":
+                            pay_error = "Status pembayaran tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
                         else:
                             pay_error = _friendly_settle_msg(
-                                qris_result.get("message") if isinstance(qris_result, dict) else None,
-                                default="Gagal membuat QRIS."
+                                res.get("message") if isinstance(res, dict) else None,
+                                default=f"Pembayaran gagal: {res.get('message', 'No response') if isinstance(res, dict) else 'No response'}"
                             )
                     else:
                         pay_error = "Metode pembayaran tidak dikenal."
@@ -5629,6 +5672,7 @@ def _refund_token_balance(user, amount, description):
 PAY_METHOD_LABELS = {
     "balance": "Pulsa XL",
     "qris": "QRIS",
+    "ewallet": "E-Wallet",
 }
 
 FAMILY_FEE_DEFAULTS = {
@@ -5671,12 +5715,13 @@ def _pkg_fee(family_key, option_number, method):
                 PackagePrice.option_number == option_number,
             ).first()
             if row is not None:
-                val = row.fee_qris if method == "qris" else row.fee_pulsa
+                # ewallet = metode "bayar tunai via app" — ikut fee QRIS.
+                val = row.fee_pulsa if method == "balance" else row.fee_qris
                 if val is not None:
                     return val
         finally:
             db.close()
-    return _get_family_fee(_fee_key(family_key, method))
+    return _get_family_fee(_fee_key(family_key, "balance" if method == "balance" else "qris"))
 
 
 def _custom_pin_fee(family_code, method) -> int | None:
@@ -5799,7 +5844,7 @@ def _checkout_context(active_xl, user, detail, method, family_key, option_number
     decoy_name = "default"
     if option_number is not None:
         dq, dp = _pkg_decoy_override(family_key, option_number)
-        href = dq if method == "qris" else dp
+        href = dq if method in ("qris", "ewallet") else dp
         if href and href != "none":
             decoy = True
             decoy_name = href
@@ -5908,7 +5953,7 @@ def pay_paket(request: Request, family_prefix: str, option_number: int, method: 
     ctx = get_user_context(user, db)
     db.close()
     return _pay_with_fee(user, ctx,
-                         lambda: _process_payment(ctx.get("active_xl"), fam_key, option_number, method),
+                         lambda: _process_payment(ctx.get("active_xl"), fam_key, option_number, method, wallet_type, wallet_number),
                          fam_key, option_number, method)
 
 def _qris_png_data_uri(qris_b64):

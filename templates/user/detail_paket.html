@@ -215,7 +215,8 @@ function detailHtml(d) {
   h += '<div class="pay-grid">';
   var pulsaBtn = '<a class="pay-btn" href="/user/xl/beli-paket/' + encodeURIComponent(d.url_id) + '/checkout/balance">Pulsa<span class="sub">Bayar dengan pulsa XL</span></a>';
   var qrisBtn = '<a class="pay-btn" href="/user/xl/beli-paket/' + encodeURIComponent(d.url_id) + '/checkout/qris">QRIS<span class="sub">Bayar dengan QRIS</span></a>';
-  h += pulsaBtn + qrisBtn;
+  var ewalletBtn = '<a class="pay-btn" href="/user/xl/beli-paket/' + encodeURIComponent(d.url_id) + '/checkout/ewallet">E-Wallet<span class="sub">DANA · ShopeePay · GoPay · OVO</span></a>';
+  h += pulsaBtn + qrisBtn + ewalletBtn;
   h += '</div></div>';
 
   return h + '</div>';
