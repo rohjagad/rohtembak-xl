@@ -1070,7 +1070,7 @@ def _admin_family_name_map(acct_key, family_key, fam_code, tokens):
         is_ent, mig = _family_api_params(fam_code)
         with _catalog_fetch_lock:
             _api_delay()
-            data = xl_get_family(API_KEY, tokens, fam_code, is_enterprise=is_ent, migration_type=mig)
+            data = _fetch_family_robust(tokens, fam_code, is_ent, mig)
     except Exception as e:
         print(f"[prices-xl] nama live {family_key} gagal: {e}")
         data = None
@@ -1602,7 +1602,7 @@ def admin_prices_xl_family_browse_page(request: Request, family_key: str, user: 
             is_ent, mig = _family_api_params(fam_code)
             _api_delay()
             try:
-                data = xl_get_family(API_KEY, tokens, fam_code, is_enterprise=is_ent, migration_type=mig)
+                data = _fetch_family_robust(tokens, fam_code, is_ent, mig)
             except Exception as e:
                 data = None
                 error = f"Gagal fetch katalog: {e}"
@@ -4767,7 +4767,7 @@ def _stream_beli_paket_events(active_xl, want, disconnected=None):
             ok = True
             result = []
             try:
-                data = xl_get_family(API_KEY, tokens, fam_code, is_enterprise=is_ent, migration_type=mig)
+                data = _fetch_family_robust(tokens, fam_code, is_ent, mig)
                 result = builder(data) if data else []
                 result = _apply_pkg_list_price(f, result)
             except Exception as e:
@@ -4860,6 +4860,19 @@ def _resolve_custom_fc(fc: str, pin: int = 0) -> str | None:
     fc = _valid_custom_family_code(fc)
     return fc
 
+
+def _fetch_family_robust(tokens, family_code, is_ent, mig):
+    """Fetch katalog family: coba param tersimpan dulu (cepat); kalau XL balas
+    SUCCESS tapi KOSONG (family berpindah kombinasi), fallback SEMUA kombinasi
+    seperti TUI — browse/detail/pay tidak pernah mati karena param basi."""
+    if is_ent is None or mig is None:
+        return xl_get_family(API_KEY, tokens, family_code, is_enterprise=None, migration_type=None)
+    data = xl_get_family(API_KEY, tokens, family_code, is_enterprise=is_ent, migration_type=mig)
+    if isinstance(data, dict) and (data.get("package_variants") or (data.get("package_family") or {}).get("name")):
+        return data
+    print(f"[get_family] param tersimpan kosong untuk {family_code[:8]}… — fallback semua kombinasi")
+    _api_delay()
+    return xl_get_family(API_KEY, tokens, family_code, is_enterprise=None, migration_type=None)
 
 def _custom_fetch_family(tokens, family_code):
     """Katalog satu family code bebas. is_enterprise/migration_type = None →
@@ -5289,7 +5302,7 @@ def _family_detail(fam_key, option_number, active_xl, tokens=None):
     fam_code = cfg["family_code"]
     is_ent, mig = _family_api_params(fam_code)
     _api_delay()
-    family_data = xl_get_family(API_KEY, tokens, fam_code, is_enterprise=is_ent, migration_type=mig)
+    family_data = _fetch_family_robust(tokens, fam_code, is_ent, mig)
     if not (family_data and family_data.get("package_variants")):
         return None
     option_number_local = 1
@@ -5427,7 +5440,7 @@ def _get_family_items_and_detail(fam_key, option_number, active_xl, tokens=None)
     fam_code = cfg["family_code"]
     is_ent, mig = _family_api_params(fam_code)
     _api_delay()
-    family_data = xl_get_family(API_KEY, tokens, fam_code, is_enterprise=is_ent, migration_type=mig)
+    family_data = _fetch_family_robust(tokens, fam_code, is_ent, mig)
     if not family_data:
         return None, None
     option_number_local = 1
