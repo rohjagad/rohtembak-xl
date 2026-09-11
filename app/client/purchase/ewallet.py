@@ -30,11 +30,15 @@ def settlement_ewallet(
     tokens: dict,
     items: list,
     payment_for: str,
-    wallet_type: str,
-    wallet_number: str,
+    ask_overwrite: bool = False,
     overwrite_amount: int = -1,
     token_confirmation_idx: int = 0,
+    wallet_type: str = "",
+    wallet_number: str = "",
 ):
+    """ask_overwrite ada hanya agar kompatibel dengan pemanggilan generik
+    _settle_with_decoy (panel selalu kirim overwrite_amount; tidak ada input
+    interaktif)."""
     """Settlement multipayment e-wallet. Return dict respons XL.
 
     UNKNOWN (bukan None) saat koneksi/respon tidak terbaca — hasil tidak
