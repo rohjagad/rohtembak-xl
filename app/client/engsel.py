@@ -169,10 +169,14 @@ def get_family(
                 continue
             
             # Bentuk respons XL bisa berubah — jangan KeyError mentah.
-            family_data = res.get("data") or {}
-            family_name = (family_data.get("package_family") or {}).get("name", "")
+            # PENTING: lookup nama pakai variabel LOKAL — menimpa family_data
+            # di sini membuat SUCCESS-tanpa-nama menghentikan loop kombinasi
+            # (family conference butuh kombinasi lain; referensi CLI lanjut
+            # karena variabelnya tetap None).
+            data_now = res.get("data") or {}
+            family_name = (data_now.get("package_family") or {}).get("name", "")
             if family_name != "":
-                family_data = res["data"]
+                family_data = data_now
                 print(f"Success with is_enterprise={ie}, migration_type={mt}. Family name: {family_name}")
 
 
