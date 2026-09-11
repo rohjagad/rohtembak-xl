@@ -358,14 +358,14 @@ document.addEventListener('click', function(e) {
             <tr class="edit-row" data-edit="{{ u.id }}" hidden>
                 <td colspan="4" style="background:#fafafa;">
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <button type="button" class="btn btn-sm btn-outline" onclick="openTopupFor({{ u.id }}, {{ u.username | tojson }})">Topup</button>
-                        <button type="button" class="btn btn-sm btn-outline" onclick="openSetFor({{ u.id }}, {{ u.username | tojson }})">Set Saldo</button>
-                        <button type="button" class="btn btn-sm btn-outline" onclick="openDecreaseFor({{ u.id }}, {{ u.username | tojson }})">Kurangi Saldo</button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick='openTopupFor({{ u.id }}, {{ u.username | tojson }})'>Topup</button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick='openSetFor({{ u.id }}, {{ u.username | tojson }})'>Set Saldo</button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick='openDecreaseFor({{ u.id }}, {{ u.username | tojson }})'>Kurangi Saldo</button>
                         <form action="/admin/users/login-as" method="POST" style="display:inline;">
                             <input type="hidden" name="user_id" value="{{ u.id }}">
                             <button type="submit" class="btn btn-sm btn-outline" title="Masuk sebagai user ini tanpa password">Login as this user</button>
                         </form>
-                        <button type="button" class="btn btn-sm btn-outline" onclick="openDeleteFor({{ u.id }}, {{ u.username | tojson }})" style="color:#dc2626;border-color:#fecaca;">Delete User</button>
+                        <button type="button" class="btn btn-sm btn-outline" onclick='openDeleteFor({{ u.id }}, {{ u.username | tojson }})' style="color:#dc2626;border-color:#fecaca;">Delete User</button>
                     </div>
                 </td>
             </tr>

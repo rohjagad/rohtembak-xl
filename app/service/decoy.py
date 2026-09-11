@@ -91,11 +91,11 @@ def resolve_decoy_package(api_key: str, tokens: dict, config: dict) -> dict | No
     wanted_variant = config.get("variant_code") or None
     option_code = None
     chosen_variant = None
-    for variant in family_data["package_variants"]:
+    for variant in (family_data.get("package_variants") or []):
         vcode = variant.get("package_variant_code")
         if wanted_variant and vcode != wanted_variant:
             continue
-        for option in variant["package_options"]:
+        for option in (variant.get("package_options") or []):
             if option.get("order") == config.get("order"):
                 option_code = option["package_option_code"]
                 chosen_variant = vcode

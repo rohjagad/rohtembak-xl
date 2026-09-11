@@ -160,7 +160,7 @@ function browseFc(fc, mode) {
   if (err) err.hidden = true;
   setBusy(box);
   fetch('/user/xl/custom/browse?fc=' + encodeURIComponent(fc), { credentials: 'same-origin' })
-    .then(function(r) { return r.json(); })
+    .then(function(r) { if (r.status === 401) { location.href = '/login'; return Promise.reject('session'); } return r.json(); })
     .then(function(res) {
       if (res.ok) {
         renderGrid(box, res.items, mode || { fc: fc });
@@ -169,7 +169,7 @@ function browseFc(fc, mode) {
         box.innerHTML = '';
       }
     })
-    .catch(function() {
+    .catch(function(err) { if (err === "session") return; 
       if (err) { err.textContent = 'Gagal terhubung. Coba lagi.'; err.hidden = false; }
       box.innerHTML = '';
     });
@@ -180,7 +180,7 @@ function browsePin(idx) {
   if (box.dataset.loaded === '1') return;
   setBusy(box);
   fetch('/user/xl/custom/browse?pin=' + idx, { credentials: 'same-origin' })
-    .then(function(r) { return r.json(); })
+    .then(function(r) { if (r.status === 401) { location.href = '/login'; return Promise.reject('session'); } return r.json(); })
     .then(function(res) {
       if (res.ok) {
         // Tandai loaded HANYA saat sukses — pin yang gagal (config salah /
@@ -191,7 +191,7 @@ function browsePin(idx) {
         box.innerHTML = '<div class="pkg-error">' + escHtml(res.error || 'Gagal memuat katalog pin.') + '</div>';
       }
     })
-    .catch(function() {
+    .catch(function(err) { if (err === "session") return; 
       box.innerHTML = '<div class="pkg-error">Gagal terhubung. Coba lagi.</div>';
     });
 }

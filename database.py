@@ -43,6 +43,10 @@ def init_db():
         if "last_checked_at" not in topup_cols:
             conn.execute(__import__("sqlalchemy").text("ALTER TABLE topup_transactions ADD COLUMN last_checked_at DATETIME DEFAULT NULL"))
             conn.commit()
+        bt_cols = [row[1] for row in conn.execute(__import__("sqlalchemy").text("PRAGMA table_info(balance_transactions)"))]
+        if "topup_id" not in bt_cols:
+            conn.execute(__import__("sqlalchemy").text("ALTER TABLE balance_transactions ADD COLUMN topup_id INTEGER DEFAULT NULL"))
+            conn.commit()
         # Migrasi status topup ke lifecycle 4 fase: waiting -> pending -> expired | paid.
         # Sebelumnya status 'expired' bermakna ganda (5 mnt-24 jam vs >=24 jam).
         conn.execute(__import__("sqlalchemy").text(

@@ -140,12 +140,13 @@ def submit_otp(
         if "error" in json_body:
             print(f"[Error submit_otp]: {json_body}")
             return None
-        
+
         print("Login successful.")
         return json_body
     except requests.RequestException as e:
-        print(f"[Error submit_otp]: {e}")
-        return None
+        # Network error ≠ OTP salah — raise supaya caller bisa membedakan
+        # (caller sudah punya handler: "periksa koneksi, coba lagi").
+        raise
 
 def get_new_token(api_key: str, refresh_token: str, username: str):
     """Tukar refresh token ke pasangan token baru.

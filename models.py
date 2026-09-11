@@ -57,6 +57,10 @@ class BalanceTransaction(Base):
     amount = Column(Integer, nullable=False)
     type = Column(String(20), nullable=False)
     description = Column(String(255), default="")
+    # Untuk baris type="topup": id TopupTransaction sumbernya — agar
+    # penghasilan memasangkan fee ke baris yang benar (bukan tebakan
+    # jendela waktu 15 detik antar topup berdekatan).
+    topup_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

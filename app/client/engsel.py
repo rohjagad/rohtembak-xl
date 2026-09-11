@@ -168,7 +168,9 @@ def get_family(
             if not isinstance(res, dict) or res.get("status") != "SUCCESS":
                 continue
             
-            family_name = res["data"]["package_family"].get("name", "")
+            # Bentuk respons XL bisa berubah — jangan KeyError mentah.
+            family_data = res.get("data") or {}
+            family_name = (family_data.get("package_family") or {}).get("name", "")
             if family_name != "":
                 family_data = res["data"]
                 print(f"Success with is_enterprise={ie}, migration_type={mt}. Family name: {family_name}")

@@ -74,6 +74,7 @@
 .body-wrap.collapsed { display: none; padding-top: 0; }
 
 .pkg-empty { padding: 14px; font-size: .85rem; color: rgba(255,255,255,0.6); }
+.pkg-loading { padding: 14px; font-size: .85rem; color: #6b7280; }
 
 .pkg-banner-white {
   background: #fff;
@@ -322,10 +323,27 @@ function streamData(famParam) {
     src.close();
     if (typeof checkSessionExpired === 'function') checkSessionExpired();
     // Stream putus di tengah: box yang belum ke-render tetap spinner
-    // selamanya kalau tidak di-finish di sini.
-    payload.last_refresh = fmtDateTime(new Date());
-    finishBoxes(payload);
+    // selamanya kalau tidak di-finish di sini. Pesan harus "gagal memuat",
+    // BUKAN "tidak ada paket" (data kosong ≠ gagal).
+    BOX_KEYS.forEach(function(key) {
+      if (streamedBoxes[key]) return;
+      var box = document.querySelector('.pkg-data[data-box="' + key + '"]');
+      if (box && box.querySelector('.pkg-card.skel')) {
+        box.innerHTML = '<div class="pkg-empty">Gagal memuat paket — periksa koneksi lalu tekan Refresh Data.</div>';
+      }
+    });
   });
+}
+
+function refreshPageData() {
+  // Refresh Data dari banner: paksa stream ulang katalog (harga bisa
+  // berubah kapan saja di sisi admin).
+  CATALOG_VER = null;
+  BOX_KEYS.forEach(function(key) { streamedBoxes[key] = false; });
+  document.querySelectorAll('.pkg-data[data-box]').forEach(function(box) {
+    box.innerHTML = '<div class="pkg-loading"><span class="skel-spinner"></span> &nbsp;Memuat paket...</div>';
+  });
+  streamData(ALL_FAM_PARAM);
 }
 
 function isFresh(d, ttl) {

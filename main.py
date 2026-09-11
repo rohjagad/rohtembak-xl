@@ -31,7 +31,7 @@ from database import init_db, get_db
 from models import User, XLAccount, Balance, BalanceTransaction, FamilyFee, TopupTransaction, PackagePrice, XlFamily, Decoy
 from auth import (
     verify_password, create_access_token, decode_token,
-    get_current_user, seed_users, hash_password, ACCESS_TOKEN_EXPIRE_MINUTES,
+    get_current_user, get_current_user_api, seed_users, hash_password, ACCESS_TOKEN_EXPIRE_MINUTES,
     rotate_jwt_secret
 )
 
@@ -816,6 +816,24 @@ def _wipe_decoys(db=None):
                 pass
 
 
+def _canonicalize_decoy_refs(db):
+    """Setelah decoy ter-restore, pastikan referensi decoy di PackagePrice
+    menunjuk nama yang benar-benar ada: ref lama ber-suffix `slug-<id>`
+    (id berubah pasca restore) dipetakan ke nama baru; yang tak cocok sama
+    sekali diblank agar settle tidak raise 'Gagal memuat paket decoy'."""
+    for ptype, col in (("qris", "decoy_qris"), ("balance", "decoy_pulsa")):
+        names = [d["name"] for d in _list_decoys(ptype)]
+        if not names:
+            continue
+        for row in db.query(PackagePrice).filter(getattr(PackagePrice, col) != "").all():
+            v = (getattr(row, col) or "").strip()
+            if not v or v in names:
+                continue
+            base = v.rsplit("-", 1)[0]
+            canon = next((n for n in names if n == base or n.startswith(base + "-")), "")
+            setattr(row, col, canon)
+
+
 def _restore_decoys(decoys: dict, db=None) -> int:
     """Simpan decoy dari backup ke DB (migrasi file legacy → DB juga).
     decoys = {ptype: [{label, family_code, order}]}. db (opsional): pakai
@@ -1005,6 +1023,12 @@ def admin_decoy_delete(
         row = _decoy_row_by_name(payment_type, str(name or "").strip())
         if row:
             db.delete(row)
+            # Bersihkan override per-paket yang menunjuk decoy ini — kalau
+            # dibiarkan, settle raise "Gagal memuat paket decoy" dan paket
+            # tak bisa dibeli (QRIS kini benar-benar menerapkan decoy).
+            col = PackagePrice.decoy_qris if payment_type == "qris" else PackagePrice.decoy_pulsa
+            db.query(PackagePrice).filter(col == name).update(
+                {col.key: ""}, synchronize_session=False)
             db.commit()
     finally:
         db.close()
@@ -1053,7 +1077,7 @@ def _admin_family_name_map(acct_key, family_key, fam_code, tokens):
     if data:
         items = _build_registry_items(data, [])
         m = {it["number"]: it for it in items}
-        _admin_name_cache[ck] = (m, now + _DECOY_PRICE_TTL)
+        _admin_name_cache[ck] = (m, now + _NAME_CACHE_TTL)
         _admin_name_prev[ck] = m
         _prune_mem_cache(_admin_name_cache)
         if len(_admin_name_prev) > 200:
@@ -2070,7 +2094,19 @@ def admin_penghasilan(request: Request, user: User = Depends(get_current_user)):
             paid_at = t.paid_at.replace(tzinfo=None) if t.paid_at.tzinfo else t.paid_at
             paid_by_user.setdefault(t.user_id, []).append((t, paid_at))
 
+    topup_by_id = {}
+    for t in db.query(TopupTransaction).filter(
+        TopupTransaction.status == "paid",
+        TopupTransaction.paid_at.isnot(None),
+    ).all():
+        topup_by_id[t.id] = t
+
     def _match_fee(r):
+        # Baris baru: pasangkan langsung via topup_id (akurat).
+        if getattr(r, "topup_id", None):
+            t = topup_by_id.get(r.topup_id)
+            return (t.fee or 0) if t else 0
+        # Baris lama (pra-migrasi): fallback jendela 15 detik.
         if not r.created_at:
             return 0
         best_diff = None
@@ -2217,7 +2253,7 @@ def admin_backup(admin_user: User = Depends(get_current_user), db: Session = Dep
     users = db.query(User).filter(User.role == "user").all()
     admin_data = {
         "username": admin.username if admin else "",
-        "password": (admin.password or admin.password_hash) if admin else "",
+        "password": (admin.password_hash or "") if admin else "",
         "email": admin.email if admin else "",
     }
     users_data = []
@@ -2226,7 +2262,7 @@ def admin_backup(admin_user: User = Depends(get_current_user), db: Session = Dep
         bal = db.query(Balance).filter(Balance.user_id == u.id).first()
         users_data.append({
             "username": u.username,
-            "password": u.password or u.password_hash,
+            "password": u.password_hash or "",
             "email": u.email,
             "saldo": bal.balance if bal else 0,
         })
@@ -2353,7 +2389,7 @@ def _ab_state_path() -> str:
     return os.path.join(BASE_DIR, "data", "autobackup.json")
 
 
-_ab_state_lock = threading.Lock()
+_ab_state_lock = threading.RLock()  # RLock: RMW (_ab_read+_ab_write dalam satu critical section) nested-safe
 
 
 def _ab_read_state() -> dict:
@@ -2518,7 +2554,7 @@ def _autobackup_zip_bytes() -> bytes:
         users = db.query(User).filter(User.role == "user").all()
         admin_data = {
             "username": admin.username if admin else "",
-            "password": (admin.password or admin.password_hash) if admin else "",
+            "password": (admin.password_hash or "") if admin else "",
             "email": admin.email if admin else "",
         }
         users_data = []
@@ -2527,7 +2563,7 @@ def _autobackup_zip_bytes() -> bytes:
             bal = db.query(Balance).filter(Balance.user_id == u.id).first()
             users_data.append({
                 "username": u.username,
-                "password": u.password or u.password_hash,
+                "password": u.password_hash or "",
                 "email": u.email,
                 "saldo": bal.balance if bal else 0,
             })
@@ -2610,18 +2646,20 @@ def _telegram_send_backup(trigger: str) -> tuple[bool, str]:
             pass
 
     now_str = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB")
-    cfg = _ab_read_state()
-    cfg["last_run_at"] = now_str
-    cfg["last_run_ok"] = ok
-    cfg["last_output"] = out
-    if ok:
-        _ab_set_next_run(cfg)
-    elif trigger == "auto" and int(cfg.get("retry_left") or 0) < AUTOBACKUP_MAX_RETRIES:
-        cfg["retry_left"] = int(cfg.get("retry_left") or 0) + 1
-        cfg["next_run_ts"] = int((datetime.now(WIB) + timedelta(minutes=AUTOBACKUP_RETRY_MINUTES)).timestamp())
-    else:
-        _ab_set_next_run(cfg)
-    _ab_write_state(cfg)
+    # RMW dalam satu lock: read & write terpisah bisa menimpa config baru.
+    with _ab_state_lock:
+        cfg = _ab_read_state()
+        cfg["last_run_at"] = now_str
+        cfg["last_run_ok"] = ok
+        cfg["last_output"] = out
+        if ok:
+            _ab_set_next_run(cfg)
+        elif trigger == "auto" and int(cfg.get("retry_left") or 0) < AUTOBACKUP_MAX_RETRIES:
+            cfg["retry_left"] = int(cfg.get("retry_left") or 0) + 1
+            cfg["next_run_ts"] = int((datetime.now(WIB) + timedelta(minutes=AUTOBACKUP_RETRY_MINUTES)).timestamp())
+        else:
+            _ab_set_next_run(cfg)
+        _ab_write_state(cfg)
     return ok, out
 
 
@@ -2784,7 +2822,10 @@ def admin_autobackup_run(request: Request, admin_user: User = Depends(get_curren
     return JSONResponse({"ok": ok, "output": out[-4000:]})
 
 
-MAX_BACKUP_RESTORE_SIZE = 1 * 1024 * 1024
+# Samakan dengan TG_MAX_BYTES (50MB) — backup yang sukses dikirim via
+# Telegram harus bisa di-restore balik. Zip bomb tetap dicegah oleh
+# _MAX_BACKUP_DECOMPRESSED (20MB).
+MAX_BACKUP_RESTORE_SIZE = TG_MAX_BYTES
 
 
 def _read_ax_fp_file() -> str:
@@ -3075,13 +3116,16 @@ def _validate_restore_settings(raw) -> dict | None:
         label = str(cb.get("label") or "").strip()[:100]
         if label or pins:
             # Browse fee ikut disimpan supaya restore tidak menimpa fee
-            # admin dengan None (fee hilang tiap restore).
+            # admin dengan None (fee hilang tiap restore). Key yang TIDAK
+            # ada di backup lama dilewati (_UNSET) — bukan None eksplisit.
             out["custom_buy"] = {
                 "label": label or CUSTOM_BUY_LABEL_DEFAULT,
                 "pins": pins,
-                "browse_fee_pulsa": cb.get("browse_fee_pulsa"),
-                "browse_fee_qris": cb.get("browse_fee_qris"),
             }
+            if "browse_fee_pulsa" in cb:
+                out["custom_buy"]["browse_fee_pulsa"] = cb.get("browse_fee_pulsa")
+            if "browse_fee_qris" in cb:
+                out["custom_buy"]["browse_fee_qris"] = cb.get("browse_fee_qris")
 
     return out or None
 
@@ -3139,11 +3183,13 @@ def _apply_restore_settings(valid_settings: dict) -> list:
         if not cb_pins and _valid_custom_family_code(str(cb.get("family_code") or "")):
             cb_pins = [{"label": CUSTOM_BUY_LABEL_DEFAULT,
                         "family_code": str(cb.get("family_code") or "")}]
-        _custom_buy_write(
-            cb_pins,
-            browse_fee_pulsa=_clamp_custom_fee(cb.get("browse_fee_pulsa")),
-            browse_fee_qris=_clamp_custom_fee(cb.get("browse_fee_qris")),
-        )
+        fee_kwargs = {}
+        if "browse_fee_pulsa" in cb:
+            fee_kwargs["browse_fee_pulsa"] = _clamp_custom_fee(cb.get("browse_fee_pulsa"))
+        if "browse_fee_qris" in cb:
+            fee_kwargs["browse_fee_qris"] = _clamp_custom_fee(cb.get("browse_fee_qris"))
+        # Fee yang tidak dibawa backup TIDAK disentuh (tetap _UNSET).
+        _custom_buy_write(cb_pins, **fee_kwargs)
         applied.append("Beli Paket Custom")
 
     if touched_state:
@@ -3251,31 +3297,39 @@ async def admin_restore_upload(
     known_fams = set(_family_registry()) | set(
         k for k, v in (data.get("families") or {}).items() if isinstance(v, dict)
     )
-    # Nama decoy dari BACKUP (bukan DB saat ini — decoy DB lama akan di-wipe
-    # lalu diisi ulang dari backup; membandingkan dengan DB sekarang akan
-    # mem-blank referensi decoy yang sebenarnya ikut ter-restore).
-    # Nama saat restore = slug(label), + "-id" bila slug bentrok; referensi
-    # lama juga mungkin memakai suffix -id, jadi terima keduanya.
+    # Decoy yang BENAR-BENAR akan ter-restore (family_code tervalidasi) —
+    # referensi decoy di prices divalidasi ke daftar ini, bukan DB saat ini
+    # (decoy DB lama akan di-wipe lalu diisi ulang dari backup).
+    valid_decoys = None
+    raw_decoys = data.get("decoys")
+    if isinstance(raw_decoys, dict):
+        vd = {}
+        for ptype in ("qris", "balance"):
+            rows = raw_decoys.get(ptype)
+            if not isinstance(rows, list):
+                continue
+            cleaned = []
+            for e in rows:
+                if not isinstance(e, dict):
+                    continue
+                if _valid_custom_family_code(str(e.get("family_code") or "")):
+                    cleaned.append(e)
+            if cleaned:
+                vd[ptype] = cleaned
+        # dict (mungkin kosong) = backup memang mengatur decoy (punya key) →
+        # decoy live dihapus dulu biar hasil identik dengan isi backup.
+        valid_decoys = vd
+
     from app.service.decoy import decoy_slug
     def _decoy_names_from_backup(ptype):
-        slugs = set()
-        raw_decoys = data.get("decoys")
-        entries = []
-        if isinstance(raw_decoys, dict):
-            e = raw_decoys.get(ptype)
-            if isinstance(e, dict):
-                # Format legacy: {name: cfg}
-                entries = [dict(e2, label=(e2.get("label") or name))
-                           for name, e2 in e.items() if isinstance(e2, dict)]
-            elif isinstance(e, list):
-                entries = [e2 for e2 in e if isinstance(e2, dict)]
-        elif isinstance(raw_decoys, list):
-            entries = [e for e in raw_decoys
-                       if isinstance(e, dict) and e.get("payment_type") == ptype]
-        for e in entries:
-            s = decoy_slug(str(e.get("label") or ""))
-            if s:
-                slugs.add(s)
+        # Slug dari decoy backup yang valid + nama decoy DB saat ini
+        # (section tanpa decoys.json berarti decoy lama TIDAK di-wipe,
+        # jadi referensi boleh menunjuk nama yang sudah ada sekarang).
+        slugs = {d["name"] for d in _list_decoys(ptype)}
+        for e in ((valid_decoys or {}).get(ptype) or []):
+            sl = decoy_slug(str(e.get("label") or ""))
+            if sl:
+                slugs.add(sl)
         return slugs
 
     def _decoy_ref(v, ptype):
@@ -3285,7 +3339,8 @@ async def admin_restore_upload(
         slugs = _decoy_names_from_backup(ptype)
         if v in slugs:
             return v
-        # Toleransi suffix bentrok lama: slug-<id>
+        # Toleransi suffix bentrok lama: slug-<id> (dikanonisasi ulang
+        # setelah decoy ter-restore — lihat _canonicalize_decoy_refs).
         base = v.rsplit("-", 1)[0]
         return v if base in slugs else ""
 
@@ -3332,26 +3387,6 @@ async def admin_restore_upload(
             "fee_pulsa": _norm_fee(p.get("fee_pulsa")),
         })
 
-    valid_decoys = None
-    raw_decoys = data.get("decoys")
-    if isinstance(raw_decoys, dict):
-        vd = {}
-        for ptype in ("qris", "balance"):
-            rows = raw_decoys.get(ptype)
-            if not isinstance(rows, list):
-                continue
-            cleaned = []
-            for e in rows:
-                if not isinstance(e, dict):
-                    continue
-                if _valid_custom_family_code(str(e.get("family_code") or "")):
-                    cleaned.append(e)
-            if cleaned:
-                vd[ptype] = cleaned
-        # dict (mungkin kosong) = backup memang mengatur decoy (punya key) →
-        # decoy live dihapus dulu biar hasil identik dengan isi backup.
-        valid_decoys = vd
-
     valid_settings = _validate_restore_settings(data.get("settings"))
     legacy_backup = False
     if valid_settings is None and data.get("kind") == "full":
@@ -3392,6 +3427,16 @@ async def admin_restore_upload(
     if isinstance(data.get("families"), dict):
         # Backup mengelola registry family → hasil restore identik dengan backup.
         db.query(XlFamily).delete(synchronize_session=False)
+    # Snapshot topup waiting/pending yang dipertahankan: user di-wipe lalu
+    # dibuat ulang → id baru bisa geser. Simpan (topup_id, old_user_id,
+    # username) sekarang untuk REMAP user_id setelah users ter-restore.
+    kept_topups_owner = [
+        (t.id, t.user_id,
+         str(getattr(db.query(User).filter(User.id == t.user_id).first(), "username", "") or ""))
+        for t in db.query(TopupTransaction).filter(
+            TopupTransaction.status.in_(("waiting", "pending"))
+        ).all()
+    ]
     db.expunge_all()
     with _token_lock:
         _XL_TOKEN_CACHE.clear()
@@ -3472,6 +3517,21 @@ async def admin_restore_upload(
             copy_shared_fp_to_user(u.username)
         users_restored += 1
 
+    # Remap user_id topup waiting/pending yang dipertahankan (id user baru
+    # bisa berbeda setelah wipe). Update by topup.id — uid lama bisa
+    # bertabrakan dengan uid baru milik user lain. Topup milik user yang
+    # tidak ada di backup dihapus — tidak ada yang bisa mengkreditnya.
+    topups_remapped = topups_dropped = 0
+    for tid, old_uid, uname in kept_topups_owner:
+        new_u = users_by_name.get(uname) if uname else None
+        if new_u is None or new_u.role != "user":
+            db.query(TopupTransaction).filter(TopupTransaction.id == tid).delete(synchronize_session=False)
+            topups_dropped += 1
+        else:
+            db.query(TopupTransaction).filter(TopupTransaction.id == tid).update(
+                {"user_id": new_u.id}, synchronize_session=False)
+            topups_remapped += 1
+
     xl_restored = xl_skipped = 0
     for a in valid_xl:
         username = str(a.get("username") or "").strip().lower()
@@ -3517,6 +3577,8 @@ async def admin_restore_upload(
         price_restored += 1
 
     decoys_restored = _restore_decoys(valid_decoys, db) if valid_decoys else 0
+    if valid_decoys is not None:
+        _canonicalize_decoy_refs(db)
 
     # Registry family dari backup (families.json) — dipulihkan persis.
     families_restored = 0
@@ -3803,6 +3865,42 @@ def xl_otp_submit(
 
     ctx = get_user_context(user, db)
 
+    # Validasi ulang di submit (route request sudah memeriksa, tapi POST
+    # langsung bisa lolos): format nomor, cap 10, duplikat — dan xl_id
+    # wajib cocok dengan pemiliknya.
+    if (not phone_number.startswith("628") or len(phone_number) < 10 or len(phone_number) > 14
+            or not phone_number.isdigit()):
+        ctx.update({"request": request, "phone_number": phone_number, "label": label,
+            "error": "Nomor tidak valid. Harus diawali 628 dan 10-14 digit"})
+        return render("user/otp_submit.html", context=ctx, status_code=400)
+
+    if xl_id:
+        existing = db.query(XLAccount).filter(
+            XLAccount.id == xl_id, XLAccount.user_id == user.id
+        ).first()
+        if not existing:
+            ctx.update({"request": request, "phone_number": phone_number, "label": label,
+                "error": "Nomor tidak ditemukan. Silakan daftarkan ulang."})
+            return render("user/otp_submit.html", context=ctx, status_code=400)
+        if existing.phone_number != phone_number:
+            ctx.update({"request": request, "phone_number": phone_number, "label": label,
+                "error": "Nomor tidak cocok dengan catatan."})
+            return render("user/otp_submit.html", context=ctx, status_code=400)
+    else:
+        xl_count = db.query(XLAccount).filter(XLAccount.user_id == user.id).count()
+        if xl_count >= 10:
+            ctx.update({"request": request, "phone_number": phone_number, "label": label,
+                "error": "Maksimal 10 nomor XL per akun. Hapus nomor lama terlebih dahulu."})
+            return render("user/otp_submit.html", context=ctx, status_code=400)
+        existing = db.query(XLAccount).filter(
+            XLAccount.user_id == user.id,
+            XLAccount.phone_number == phone_number
+        ).first()
+        if existing:
+            ctx.update({"request": request, "phone_number": phone_number, "label": label,
+                "error": "Nomor ini sudah terdaftar. Gunakan tombol Re-OTP dari daftar nomor."})
+            return render("user/otp_submit.html", context=ctx, status_code=400)
+
     if not otp_code or len(otp_code) != 6 or not otp_code.isdigit():
         ctx.update({"request": request, "phone_number": phone_number, "label": label,
             "error": "Kode OTP harus 6 digit angka"})
@@ -4006,11 +4104,14 @@ def _build_history_rows(active_xl, user):
             "sort": te,
             "paket": q.get("option_name") or "—",
             "harga": _fmt_harga(q.get("amount")) or "—",
-            "status": "Expired" if expired else "Pending",
-            "status_color": "red" if expired else "amber",
+            # PROCESS = pembayaran sudah masuk, menunggu diproses XL —
+            # jangan tampil "Pending" dengan QR aktif (user bisa kira
+            # belum bayar & scan ulang QR terpakai).
+            "status": "Expired" if expired else ("Diproses" if (q.get("status") or "").upper() == "PROCESS" else "Pending"),
+            "status_color": "red" if expired else ("green" if (q.get("status") or "").upper() == "PROCESS" else "amber"),
             "expires_ts": q.get("expires_ts") or 0,
             "expired": expired,
-            "img": q.get("img") or "",
+            "img": "" if ((q.get("status") or "").upper() == "PROCESS" and not expired) else q.get("img") or "",
             "kind": "qris",
         })
 
@@ -4238,8 +4339,12 @@ def _admin_xl_write(sess):
     path = _admin_xl_session_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        # Tulis tmp + replace atomik: pembacaan di tengah tulisan bisa
+        # membaca JSON setengah jadi → sesi dianggap kosong/korup.
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(sess, f, ensure_ascii=False)
+        os.replace(tmp, path)
     except OSError as e:
         print(f"[admin-xl] gagal simpan sesi: {e}")
 
@@ -4842,7 +4947,10 @@ def _custom_checkout_context(active_xl, user, detail, method, family_code, charg
         "family_label": _family_label(CUSTOM_FAMILY_KEY),
         "remaining": remaining,
         "insufficient": remaining < 0,
-        "decoy_pulsa_notice": False,
+        # Jalur custom: notice pulsa dikendalikan JS sesuai decoy terpilih
+        # (dulu notice hilang total di jalur custom → pulsa bisa terpotong
+        # sungguhan tanpa peringatan).
+        "decoy_pulsa_notice": method == "balance",
         "pay_url": f"/user/xl/custom/{detail.get('number')}/pay/{method}?fc={family_code}&rw=__RW__&decoy=__DECOY__",
         "back_url": f"/user/xl/custom/{detail.get('number')}/detail?fc={family_code}",
     }
@@ -4863,7 +4971,7 @@ def user_xl_custom_page(request: Request, user: User = Depends(get_current_user)
 
 
 @app.get("/user/xl/custom/browse")
-def user_xl_custom_browse(fc: str = "", pin: int = 0, user: User = Depends(get_current_user)):
+def user_xl_custom_browse(fc: str = "", pin: int = 0, user: User = Depends(get_current_user_api)):
     if user.role != "user":
         return JSONResponse({"ok": False, "error": "Akses ditolak"}, status_code=403)
     fc = _resolve_custom_fc(fc, pin)
@@ -5036,6 +5144,8 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                         res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance", bool(decoy_name), decoy_name or "default")
                         if res and res.get("status") == "SUCCESS":
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
+                        elif res and res.get("status") == "UNKNOWN":
+                            pay_error = "Status pembelian tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
                         else:
                             pay_error = _friendly_settle_msg(
                                 res.get("message") if isinstance(res, dict) else None,
@@ -5053,6 +5163,8 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                                 pay_success = "QRIS berhasil dibuat di MyXL, tapi kode QR gagal dimuat. Buka Riwayat Transaksi XL untuk melihatnya."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
+                        elif isinstance(qris_result, dict) and qris_result.get("status") == "UNKNOWN":
+                            pay_error = "Status QRIS tidak diketahui (koneksi terputus) — transaksi MUNGKIN sudah terbentuk. CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
                         else:
                             pay_error = _friendly_settle_msg(
                                 qris_result.get("message") if isinstance(qris_result, dict) else None,
@@ -5278,7 +5390,7 @@ async def user_xl_detail_stream(request: Request, family: str, n: int, user: Use
 
 
 @app.get("/user/xl/banner-info")
-def user_xl_banner_info(user: User = Depends(get_current_user)):
+def user_xl_banner_info(user: User = Depends(get_current_user_api)):
     if user.role != "user":
         return JSONResponse({"ok": False, "xl_info": None}, status_code=403)
     db = next(get_db())
@@ -5420,12 +5532,16 @@ def _process_payment(active_xl, fam_key, option_number, method):
                 try:
                     _api_delay()
                     tokens = _get_xl_tokens(active_xl)
-                    if method == "balance":
+                    if not tokens:
+                        pay_error = "Sesi XL kedaluwarsa — login ulang ke MyXL dulu."
+                    elif method == "balance":
                         from app.client.purchase.balance import settlement_balance as pay_balance
                         _api_delay()
                         res = _settle_with_decoy(pay_balance, tokens, items, detail, "balance", use_decoy, decoy_name)
                         if res and res.get("status") == "SUCCESS":
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
+                        elif res and res.get("status") == "UNKNOWN":
+                            pay_error = "Status pembelian tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
                         else:
                             pay_error = _friendly_settle_msg(
                                 res.get("message") if isinstance(res, dict) else None,
@@ -5443,6 +5559,8 @@ def _process_payment(active_xl, fam_key, option_number, method):
                                 pay_success = "QRIS berhasil dibuat di MyXL, tapi kode QR gagal dimuat. Buka Riwayat Transaksi XL untuk melihatnya."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
+                        elif isinstance(qris_result, dict) and qris_result.get("status") == "UNKNOWN":
+                            pay_error = "Status QRIS tidak diketahui (koneksi terputus) — transaksi MUNGKIN sudah terbentuk. CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
                         else:
                             pay_error = _friendly_settle_msg(
                                 qris_result.get("message") if isinstance(qris_result, dict) else None,
@@ -5614,6 +5732,8 @@ _decoy_price_cache: dict = {}
 # umur token XL (~9,5 menit). Harga live saat settle tetap sumber kebenaran;
 # cache ini hanya agar tampilan checkout mendekati yang ditagih.
 _DECOY_PRICE_TTL = 570
+# TTL cache nama paket di /prices-xl — 1 jam cukup; nama jarang berubah.
+_NAME_CACHE_TTL = 3600
 
 
 def _decoy_live_price(active_xl=None, ptype="qris", name="default"):
@@ -5627,6 +5747,9 @@ def _decoy_live_price(active_xl=None, ptype="qris", name="default"):
     """
     acct_key = f"{active_xl.id}" if (active_xl and active_xl.id) else "?"
     cache_key = f"{ptype}:{acct_key}:{name}"
+    entry = _decoy_price_cache.get(cache_key)
+    if entry and entry[1] > time.time():
+        return entry[0]
     try:
         from app.service.decoy import build_decoy_item
         if active_xl and active_xl.refresh_token:
@@ -5753,7 +5876,7 @@ def _panel_fee_precheck(user, family_key: str, option_number: int, method: str, 
 
 @app.post("/user/xl/beli-paket/{family_prefix}-{option_number}/pay/{method}")
 def pay_paket(request: Request, family_prefix: str, option_number: int, method: str,
-              user: User = Depends(get_current_user)):
+              user: User = Depends(get_current_user_api)):
     """Pay generik — family dari url_prefix registry; decoy murni per-package
     (override set di /prices-xl per paket, bukan per family)."""
     if user.role != "user":
@@ -5851,35 +5974,53 @@ def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
     return qris_txs, matched_codes
 
 
+# Guard pembelian konkuren: satu (user, family, opsi, metode) hanya boleh
+# ada SATU proses bayar in-flight. Dobel-klik / 2 tab tanpa ini = 2 settlement
+# XL + fee 2x (btn.disabled di JS bukan guard server).
+_PAY_INFLIGHT: dict = {}
+_PAY_INFLIGHT_LOCK = threading.Lock()
+
 def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method, fee: int | None = None):
     """Bayar biaya konsumsi panel SEBELUM purchase XL, refund kalau gagal.
 
     Menutup celah: dua order konkuren yang sama-sama lolos precheck tidak
     lagi bisa mengantre paket tanpa fee — saldo sudah terpotong di depan.
     """
-    fee = _pkg_fee(family_key, option_number, method) if fee is None else fee
-    desc = f"Konsumsi saldo panel {_family_label(family_key)} via {PAY_METHOD_LABELS.get(method, method)}"
-    if _deduct_token_balance(user, fee, desc) is None:
-        return JSONResponse({
-            "ok": False,
-            "message": f"Saldo panel tidak cukup untuk biaya konsumsi ({_fmt_idr(fee)} IDR). Topup dulu ya."
-        }, status_code=400)
+    inflight_key = (user.id, family_key, option_number, method)
+    with _PAY_INFLIGHT_LOCK:
+        if _PAY_INFLIGHT.get(inflight_key):
+            return JSONResponse({
+                "ok": False,
+                "message": "Pembelian ini masih diproses — tunggu hasilnya dulu."
+            }, status_code=409)
+        _PAY_INFLIGHT[inflight_key] = True
     try:
-        detail, pay_error, pay_success, pay_extra = run_purchase()
-    except Exception as e:
-        # run_purchase melempar di luar try internal-nya (mis. DB locked di
-        # decoy override) — fee jangan hangus tanpa refund.
-        print(f"[pay-with-fee] purchase error: {e}")
-        _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
-        return JSONResponse({
-            "ok": False,
-            "message": "Terjadi kesalahan saat memproses pembelian — biaya konsumsi sudah dikembalikan. Coba lagi."
-        }, status_code=500)
-    if not pay_success:
-        _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
-    return _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number, pay_extra,
-                         phone_number=getattr(ctx.get("active_xl"), "phone_number", "") or "",
-                         fee_charged=True, fee=fee)
+        fee = _pkg_fee(family_key, option_number, method) if fee is None else fee
+        desc = f"Konsumsi saldo panel {_family_label(family_key)} via {PAY_METHOD_LABELS.get(method, method)}"
+        if _deduct_token_balance(user, fee, desc) is None:
+            return JSONResponse({
+                "ok": False,
+                "message": f"Saldo panel tidak cukup untuk biaya konsumsi ({_fmt_idr(fee)} IDR). Topup dulu ya."
+            }, status_code=400)
+        try:
+            detail, pay_error, pay_success, pay_extra = run_purchase()
+        except Exception as e:
+            # run_purchase melempar di luar try internal-nya (mis. DB locked di
+            # decoy override) — fee jangan hangus tanpa refund.
+            print(f"[pay-with-fee] purchase error: {e}")
+            _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
+            return JSONResponse({
+                "ok": False,
+                "message": "Terjadi kesalahan saat memproses pembelian — biaya konsumsi sudah dikembalikan. Coba lagi."
+            }, status_code=500)
+        if not pay_success:
+            _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
+        return _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number, pay_extra,
+                             phone_number=getattr(ctx.get("active_xl"), "phone_number", "") or "",
+                             fee_charged=True, fee=fee)
+    finally:
+        with _PAY_INFLIGHT_LOCK:
+            _PAY_INFLIGHT.pop(inflight_key, None)
 
 
 def _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number=None, pay_extra=None, phone_number="", fee_charged=False, fee=None):
@@ -5994,20 +6135,24 @@ _topup_credit_lock = threading.Lock()
 def _credit_topup(db: Session, topup: TopupTransaction):
     """Credit a paid topup exactly once (atomic pending/expired → paid flip)."""
     with _topup_credit_lock:
-        # Atomic guard: UPDATE hanya matches while the row is still unpaid.
-        # Jangan percaya atribut objek sesi ini (identity map bisa stale
-        # ketika path lain baru saja commit 'paid' untuk baris yang sama).
-        updated = db.query(TopupTransaction).filter(
-            TopupTransaction.id == topup.id,
-            TopupTransaction.status.in_(("waiting", "pending", "expired")),
-        ).update({
-            "status": "paid",
-            "paid_at": datetime.now(timezone.utc),
-        }, synchronize_session=False)
-        if not updated:
-            db.rollback()
-            return None
+        # Urutan lock WAJIB: _balance_lock (app) dulu, baru write-lock SQLite.
+        # UPDATE atomik mengambil write-lock; kalau dijalankan sebelum
+        # _balance_lock, _deduct/_refund yang pegang _balance_lock lalu
+        # commit bisa saling tunggu → "database is locked".
         with _balance_lock:
+            # Atomic guard: UPDATE hanya matches while the row is still unpaid.
+            # Jangan percaya atribut objek sesi ini (identity map bisa stale
+            # ketika path lain baru saja commit 'paid' untuk baris yang sama).
+            updated = db.query(TopupTransaction).filter(
+                TopupTransaction.id == topup.id,
+                TopupTransaction.status.in_(("waiting", "pending", "expired")),
+            ).update({
+                "status": "paid",
+                "paid_at": datetime.now(timezone.utc),
+            }, synchronize_session=False)
+            if not updated:
+                db.rollback()
+                return None
             bal = db.query(Balance).filter(Balance.user_id == topup.user_id).first()
             if not bal:
                 bal = Balance(user_id=topup.user_id, balance=0)
@@ -6017,6 +6162,7 @@ def _credit_topup(db: Session, topup: TopupTransaction):
                 user_id=topup.user_id,
                 amount=topup.amount,
                 type="topup",
+                topup_id=topup.id,
                 description=f"Topup saldo via QRIS ({_fmt_idr(topup.total)} IDR, termasuk biaya admin {_fmt_idr(topup.fee)} IDR)"
             ))
             # Satu commit untuk flip status + kredit saldo: kalau terpisah,
@@ -6048,7 +6194,19 @@ def _credit_topup(db: Session, topup: TopupTransaction):
 
 def _check_and_settle_topup(db: Session, topup: TopupTransaction) -> dict:
     """Ask the gateway about one topup; settle (credit/mark expired) accordingly."""
-    res = gopay.check_payment(topup.total, topup.trx_id)
+    if not topup.qris_id:
+        # Baris crash-window: commit pertama sebelum create_qris sukses.
+        # trx_id masih placeholder `pending-{uuid}` — mengirimnya ke gateway
+        # hanya menambah scope sampah. Tidak ada QR → tidak ada yang bisa
+        # dibayar → perlakukan seperti belum ada pembayaran.
+        return {"ok": True, "status": topup.status,
+                "message": "QRIS belum sempat dibuat — buat topup baru."}
+    start_iso = None
+    if topup.created_at:
+        _ca = topup.created_at if topup.created_at.tzinfo else topup.created_at.replace(tzinfo=timezone.utc)
+        # ISO UTC + Z → gateway `new Date()` parse benar terlepas TZ hostnya.
+        start_iso = _ca.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    res = gopay.check_payment(topup.total, topup.trx_id, start_time=start_iso)
     if not res.get("success"):
         # Gateway offline / belum dikonfigurasi: jangan jatuh ke tebakan
         # "belum ada pembayaran" yang menyesatkan. Laporkan kegagalan
@@ -6167,7 +6325,7 @@ def topup_page(request: Request, user: User = Depends(get_current_user)):
 
 
 @app.post("/user/topup/create")
-def topup_create(amount: int = Form(...), user: User = Depends(get_current_user)):
+def topup_create(amount: int = Form(...), user: User = Depends(get_current_user_api)):
     if user.role != "user":
         return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
     if not gopay.is_configured():
@@ -6180,56 +6338,59 @@ def topup_create(amount: int = Form(...), user: User = Depends(get_current_user)
 
     db = next(get_db())
     try:
-        pending_count = db.query(TopupTransaction).filter(
-            TopupTransaction.user_id == user.id,
-            TopupTransaction.status.in_(("waiting", "pending"))
-        ).count()
-        if pending_count >= TOPUP_MAX_PENDING_PER_USER:
-            return JSONResponse({
-                "ok": False,
-                "message": f"Kamu masih punya {pending_count} topup menunggu pembayaran. Selesaikan atau tunggu kedaluwarsa dulu."
-            }, status_code=429)
+        # Cap pending diperiksa DI DALAM lock yang sama dengan insert —
+        # burst paralel (dobel-klik cepat) dulu bisa membuat >3 pending.
+        with _topup_credit_lock:
+            pending_count = db.query(TopupTransaction).filter(
+                TopupTransaction.user_id == user.id,
+                TopupTransaction.status.in_(("waiting", "pending"))
+            ).count()
+            if pending_count >= TOPUP_MAX_PENDING_PER_USER:
+                return JSONResponse({
+                    "ok": False,
+                    "message": f"Kamu masih punya {pending_count} topup menunggu pembayaran. Selesaikan atau tunggu kedaluwarsa dulu."
+                }, status_code=429)
 
-        total = amount + TOPUP_FEE_MIN  # lower bound sanity check only
+            total = amount + TOPUP_FEE_MIN  # lower bound sanity check only
 
-        # The gateway matches payments by nominal only, so every pending QRIS
-        # must have a unique total. A random unique-code fee (1..250 IDR) is
-        # added on top of the amount; retry until the total is free.
-        row = None
-        for _ in range(60):
-            fee = random.randint(TOPUP_FEE_MIN, TOPUP_FEE_MAX)
-            total = amount + fee
-            clash = db.query(TopupTransaction).filter(
-                TopupTransaction.status.in_(("waiting", "pending")),
-                TopupTransaction.total == total
-            ).first()
-            if clash:
-                continue
-            row = TopupTransaction(
-                user_id=user.id,
-                amount=amount,
-                fee=fee,
-                total=total,
-                trx_id=f"pending-{uuid.uuid4().hex}",
-                status="waiting",
-                expires_at=datetime.fromtimestamp(
-                    int(time.time()) + TOPUP_QR_TTL_SECONDS, tz=timezone.utc
-                ),
-            )
-            db.add(row)
-            try:
-                db.commit()
-            except IntegrityError:
-                # Unique index uq_topup_pending_total: another request claimed
-                # the same total concurrently. Roll back and try another fee.
-                db.rollback()
-                continue
-            break
-        if row is None:
-            return JSONResponse({
-                "ok": False,
-                "message": "Semua kode unik sedang terpakai. Coba lagi beberapa menit."
-            }, status_code=409)
+            # The gateway matches payments by nominal only, so every pending QRIS
+            # must have a unique total. A random unique-code fee (1..250 IDR) is
+            # added on top of the amount; retry until the total is free.
+            row = None
+            for _ in range(60):
+                fee = random.randint(TOPUP_FEE_MIN, TOPUP_FEE_MAX)
+                total = amount + fee
+                clash = db.query(TopupTransaction).filter(
+                    TopupTransaction.status.in_(("waiting", "pending")),
+                    TopupTransaction.total == total
+                ).first()
+                if clash:
+                    continue
+                row = TopupTransaction(
+                    user_id=user.id,
+                    amount=amount,
+                    fee=fee,
+                    total=total,
+                    trx_id=f"pending-{uuid.uuid4().hex}",
+                    status="waiting",
+                    expires_at=datetime.fromtimestamp(
+                        int(time.time()) + TOPUP_QR_TTL_SECONDS, tz=timezone.utc
+                    ),
+                )
+                db.add(row)
+                try:
+                    db.commit()
+                except IntegrityError:
+                    # Unique index uq_topup_pending_total: another request claimed
+                    # the same total concurrently. Roll back and try another fee.
+                    db.rollback()
+                    continue
+                break
+            if row is None:
+                return JSONResponse({
+                    "ok": False,
+                    "message": "Semua kode unik sedang terpakai. Coba lagi beberapa menit."
+                }, status_code=409)
 
         # Guard race hapus-user: kalau admin menghapus user ini tepat ketika
         # kita membuat QRIS, jangan serahkan QRIS hidup ke akun yang sudah
@@ -6343,7 +6504,7 @@ def topup_qr_image(topup_id: int, user: User = Depends(get_current_user)):
 
 
 @app.post("/user/topup/check")
-def topup_check(topup_id: int = Form(...), user: User = Depends(get_current_user)):
+def topup_check(topup_id: int = Form(...), user: User = Depends(get_current_user_api)):
     if user.role != "user":
         return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
     if not gopay.is_configured():

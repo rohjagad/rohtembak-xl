@@ -68,8 +68,12 @@ def settlement_qris(
         print(f"Error: {payment_res}")
         return payment_res if isinstance(payment_res, dict) else None
     
-    token_payment = payment_res["data"]["token_payment"]
-    ts_to_sign = payment_res["data"]["timestamp"]
+    pay_data = payment_res.get("data") or {}
+    token_payment = pay_data.get("token_payment")
+    ts_to_sign = pay_data.get("timestamp")
+    if not token_payment or not ts_to_sign:
+        print("Payment methods tidak lengkap (token_payment/timestamp kosong).")
+        return {"status": "FAILED", "message": "Respon XL tidak lengkap — coba lagi."}
     
     path = "payments/api/v8/settlement-multipayment/qris"
     settlement_payload = {
@@ -163,21 +167,27 @@ def settlement_qris(
     
     url = f"{BASE_API_URL}/{path}"
     print("Sending settlement request...")
-    resp = requests.post(url, headers=headers, data=json.dumps(body), timeout=30)
-    
+    try:
+        resp = requests.post(url, headers=headers, data=json.dumps(body), timeout=30)
+    except requests.RequestException as e:
+        # UNKNOWN, bukan None — transaksi bisa sudah terbentuk di XL
+        # (lihat komentar settlement-balance).
+        print(f"[settlement-qris] network error: {e}")
+        return {"status": "UNKNOWN", "message": "Koneksi ke XL terputus saat memproses."}
+
     try:
         decrypted_body = decrypt_xdata(api_key, json.loads(resp.text))
         if decrypted_body["status"] != "SUCCESS":
             print("Failed to initiate settlement.")
             print(f"Error: {decrypted_body}")
             return decrypted_body
-        
+
         transaction_id = decrypted_body["data"]["transaction_code"]
-        
+
         return transaction_id
     except Exception as e:
         print("[decrypt err]", e)
-        return None
+        return {"status": "UNKNOWN", "message": "Respon XL tidak terbaca."}
 
 def get_qris_code(
     api_key: str,

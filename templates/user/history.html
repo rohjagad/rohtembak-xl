@@ -144,7 +144,7 @@ function manualCheck(btn) {
   var fd = new FormData();
   fd.append('topup_id', btn.dataset.id);
   fetch('/user/topup/check', { method: 'POST', body: fd, credentials: 'same-origin' })
-    .then(function(r) { return r.json(); })
+    .then(function(r) { if (r.status === 401) { location.href = '/login'; return Promise.reject('session'); } return r.json(); })
     .then(function(res) {
       var cd = parseInt(res.cooldown || '0', 10);
       if (cd > 0) {
@@ -157,7 +157,7 @@ function manualCheck(btn) {
       alert(res.message || (res.ok ? 'Belum ada pembayaran terdeteksi.' : 'Gagal mengecek status.'));
       if (res.ok && res.status !== (btn.dataset.status || '')) location.reload();
     })
-    .catch(function() {
+    .catch(function(err) { if (err === "session") return; 
       btn.disabled = false;
       btn.textContent = 'Cek Pembayaran';
     });
@@ -180,7 +180,7 @@ function fetchQr() {
   document.getElementById('qr-load-error').classList.remove('show');
   document.getElementById('qr-load-retry-wrap').style.display = 'none';
   fetch('/user/topup/qr/' + p.id, { credentials: 'same-origin', cache: 'no-store' })
-    .then(function(r) { return r.json(); })
+    .then(function(r) { if (r.status === 401) { location.href = '/login'; return Promise.reject('session'); } return r.json(); })
     .then(function(res) {
       if (currentQrParams !== p) return;
       if (!res.ok) {
@@ -189,7 +189,7 @@ function fetchQr() {
       }
       showQr(res.qr_img, res.expires_ts, p.amount, p.fee, p.total);
     })
-    .catch(function() {
+    .catch(function(err) { if (err === "session") return; 
       if (currentQrParams !== p) return;
       showQrError('Payment gateway sedang offline. QRIS tidak dapat ditampilkan.');
     });
@@ -291,12 +291,12 @@ function checkStatus() {
   var fd = new FormData();
   fd.append('topup_id', tid);
   fetch('/user/topup/check', { method: 'POST', body: fd, credentials: 'same-origin' })
-    .then(function(r) { return r.json(); })
+    .then(function(r) { if (r.status === 401) { location.href = '/login'; return Promise.reject('session'); } return r.json(); })
     .then(function(res) {
       if (currentTopupId !== tid) return;
       var cd = parseInt(res.cooldown || '0', 10);
       if (!res.ok) {
-        if (btn) armCheckCooldown(cd > 0 ? cd : COOLDOWN);
+        if (btn) { if (cd > 0) armCheckCooldown(cd); else resetCheckBtn(); }
         alert(res.message || 'Gagal mengecek status.');
         return;
       }
@@ -315,15 +315,15 @@ function checkStatus() {
         if (img) img.style.display = 'none';
         var note = document.getElementById('qr-expired-note');
         if (note) note.style.display = '';
-        if (btn) armCheckCooldown(cd > 0 ? cd : COOLDOWN);
+        if (btn) { if (cd > 0) armCheckCooldown(cd); else resetCheckBtn(); }
         alert(res.message || 'QRIS kedaluwarsa dan tidak ada pembayaran masuk.');
         return;
       }
-      if (btn) armCheckCooldown(cd > 0 ? cd : COOLDOWN);
+      if (btn) { if (cd > 0) armCheckCooldown(cd); else resetCheckBtn(); }
       alert(res.message || 'Belum ada pembayaran terdeteksi.');
       if (currentTopupStatus && res.status !== currentTopupStatus) { location.reload(); return; }
     })
-    .catch(function() {
+    .catch(function(err) { if (err === "session") return; 
       if (btn) resetCheckBtn();
       alert('Gagal terhubung — periksa koneksi lalu cek lagi.');
     });
@@ -340,7 +340,7 @@ function closeQr(reload) {
   currentQrParams = null;
   currentTopupStatus = '';
   currentTopupId = null;
-  if (reload && wasPaid) { location.reload(); return; }
+  if (wasPaid) { location.reload(); return; }  // ditutup via X setelah bayar tetap reload (saldo basi)
   // Nag hanya bila QR benar-benar sempat tampil.
   if (!wasPaid && qrShown) {
     document.getElementById('qrisClosedModal').classList.add('show');

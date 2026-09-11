@@ -66,8 +66,12 @@ def settlement_balance(
         print(f"Error: {payment_res}")
         return payment_res
     
-    token_payment = payment_res["data"]["token_payment"]
-    ts_to_sign = payment_res["data"]["timestamp"]
+    pay_data = payment_res.get("data") or {}
+    token_payment = pay_data.get("token_payment")
+    ts_to_sign = pay_data.get("timestamp")
+    if not token_payment or not ts_to_sign:
+        print("Payment methods tidak lengkap (token_payment/timestamp kosong).")
+        return {"status": "FAILED", "message": "Respon XL tidak lengkap — coba lagi."}
     
     path = "payments/api/v8/settlement-multipayment"
     settlement_payload = {
@@ -174,18 +178,28 @@ def settlement_balance(
     
     url = f"{BASE_API_URL}/{path}"
     print("Sending settlement request...")
-    resp = requests.post(url, headers=headers, data=json.dumps(body), timeout=30)
-    
+    try:
+        resp = requests.post(url, headers=headers, data=json.dumps(body), timeout=30)
+    except requests.RequestException as e:
+        # Network error SETELAH request terkirim = status tidak diketahui.
+        # Return None membuat caller menganggap gagal bersih → refund fee +
+        # user retry → RISIKO PEMBELIAN GANDA (settlement bisa sudah
+        # terproses di XL). UNKNOWN memaksa caller menyuruh user cek riwayat.
+        print(f"[settlement-balance] network error: {e}")
+        return {"status": "UNKNOWN", "message": "Koneksi ke XL terputus saat memproses."}
+
     try:
         decrypted_body = decrypt_xdata(api_key, json.loads(resp.text))
         if decrypted_body["status"] != "SUCCESS":
             print("Failed to initiate settlement.")
             print(f"Error: {decrypted_body}")
             return decrypted_body
-        
+
         print(f"Purchase result:\n{json.dumps(decrypted_body, indent=2)}")
-        
+
         return decrypted_body
     except Exception as e:
         print("[decrypt err]", e)
-        return None
+        # Referensi CLI me-return resp.text (truthy) — panel butuh kontrak
+        # jelas: hasil tidak terbaca = UNKNOWN, bukan kegagalan bersih.
+        return {"status": "UNKNOWN", "message": "Respon XL tidak terbaca."}

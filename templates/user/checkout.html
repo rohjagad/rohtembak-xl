@@ -150,7 +150,7 @@ function payNow() {
   var url = PAY_URL.replace('__DECOY__', encodeURIComponent(decoy)).replace('__RW__', encodeURIComponent(rw));
 
   fetch(url, {method: 'POST'})
-    .then(function(r) { return r.json(); })
+    .then(function(r) { if (r.status === 401) { location.href = '/login'; return Promise.reject('session'); } return r.json(); })
     .then(function(res) {
       stopPayDots();
       if (res.ok) {
@@ -171,7 +171,7 @@ function payNow() {
         if (isMaxPendingError(res.message) || isMaxPendingError(out)) showPendingModal();
       }
     })
-    .catch(function(e) {
+    .catch(function(e) { if (e === "session") return; 
       stopPayDots();
       box.innerHTML = '<span class="t-title">result</span><span class="t-prompt">$</span> <span class="t-err">ERROR</span>\n' + escapeHtml(e.message);
       btn.disabled = false;
@@ -241,11 +241,27 @@ document.addEventListener('DOMContentLoaded', function () {
   {% for d in decoy_options %}
   DECOYS.push({ name: {{ d.name | tojson }}, label: {{ d.label | tojson }}, price: {{ d.price | int }} });
   {% endfor %}
+  function fmtDecoyIDR(n) {
+    return Number(n || 0).toLocaleString('id-ID');
+  }
+  function updateDecoyNotice(d) {
+    var el = document.getElementById('decoy-notice');
+    if (!el) return;
+    var picked = val.value && d && d.name;
+    if (!picked) { el.hidden = true; return; }
+    if (d.price > 0) {
+      el.innerHTML = '<strong>Penting:</strong> Pastikan pulsa tidak lebih dari ' + fmtDecoyIDR(d.price) + ' IDR, agar tidak terpotong sejumlah ' + fmtDecoyIDR(d.price) + ' IDR.';
+    } else {
+      el.innerHTML = '<strong>Penting:</strong> Harga decoy tidak diketahui (gagal resolve) — pastikan pulsa nomor di bawah harga decoy agar decoy yang terpotong, bukan pulsa utama.';
+    }
+    el.hidden = false;
+  }
   function pickDecoy(d) {
     val.value = d.name;
     label.textContent = d.label;
     suggest.hidden = true;
     DECOY_PRICE = d.price || 0;
+    updateDecoyNotice(d);
     if (typeof updateSum === 'function') updateSum();
   }
   function renderPanel() {
@@ -329,8 +345,12 @@ document.addEventListener('DOMContentLoaded', function () {
         <div class="saldo-warn">Saldo panel tidak mencukupi untuk paket ini. Silahkan lakukan isi ulang saldo di menu <a href="/user/topup" style="color:#047857;font-weight:600;">Topup Saldo Panel</a>.</div>
         {% endif %}
         {% if decoy_pulsa_notice %}
-        <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:.8rem;line-height:1.5;">
-          <strong>Penting:</strong> Pastikan pulsa tidak lebih dari {{ decoy_threshold|rupiah if decoy_threshold else '800k' }}, agar tidak terpotong sejumlah {{ decoy_threshold|rupiah if decoy_threshold else '800k' }}.
+        <div id="decoy-notice" style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:.8rem;line-height:1.5;" {% if decoy_selector %}hidden{% endif %}>
+          {% if decoy_threshold %}
+          <strong>Penting:</strong> Pastikan pulsa tidak lebih dari {{ decoy_threshold|rupiah }} IDR, agar tidak terpotong sejumlah {{ decoy_threshold|rupiah }} IDR.
+          {% else %}
+          <strong>Penting:</strong> Harga decoy tidak diketahui (gagal resolve) — pastikan pulsa nomor di bawah harga decoy agar decoy yang terpotong, bukan pulsa utama.
+          {% endif %}
         </div>
         {% endif %}
       </div>

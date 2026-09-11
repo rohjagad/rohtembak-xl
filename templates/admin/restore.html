@@ -177,6 +177,10 @@ restoreConfirmModal.addEventListener('click', function(e) {
     if (e.target === restoreConfirmModal) restoreConfirmModal.classList.remove('show');
 });
 document.getElementById('restoreConfirmBtn').addEventListener('click', function() {
+    var btn = this;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Memulihkan...';
     restoreForm.submit();
 });
 var dz = document.getElementById('dropzone');

@@ -134,6 +134,26 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
     return user
 
+def get_current_user_api(request: Request, db: Session = Depends(get_db)) -> User:
+    """Versi get_current_user untuk endpoint JSON yang di-fetch JS: sesi
+    habis harus 401 JSON, BUKAN 303 ke halaman login — fetch mengikuti
+    redirect, dapat HTML, r.json() meledak, dan user melihat error palsu
+    ("Payment gateway offline") padahal cuma sesi habis."""
+    token = request.cookies.get("access_token")
+    if token:
+        payload = decode_token(token)
+        if payload is not None:
+            try:
+                user = db.query(User).filter(User.id == int(payload.get("sub"))).first()
+            except (TypeError, ValueError):
+                user = None
+            if user is not None:
+                return user
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"ok": False, "session_expired": True, "message": "Sesi berakhir — muat ulang halaman."},
+    )
+
 
 def seed_users(db: Session):
     # Only seed a fresh install (no users at all). Do NOT re-create "admin"
