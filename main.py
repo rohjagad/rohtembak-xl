@@ -5934,6 +5934,7 @@ def _panel_fee_precheck(user, family_key: str, option_number: int, method: str, 
 
 @app.post("/user/xl/beli-paket/{family_prefix}-{option_number}/pay/{method}")
 def pay_paket(request: Request, family_prefix: str, option_number: int, method: str,
+              wallet_type: str = Form(""), wallet_number: str = Form(""),
               user: User = Depends(get_current_user_api)):
     """Pay generik — family dari url_prefix registry; decoy murni per-package
     (override set di /prices-xl per paket, bukan per family)."""
@@ -5941,6 +5942,11 @@ def pay_paket(request: Request, family_prefix: str, option_number: int, method: 
         return JSONResponse({"ok": False, "message": "Akses ditolak"}, status_code=403)
     if method not in PAY_METHOD_LABELS:
         return JSONResponse({"ok": False, "message": "Metode pembayaran tidak tersedia."}, status_code=400)
+    if method == "ewallet":
+        wallet_type = (wallet_type or "").strip().upper()
+        err = validate_ewallet_wallet(wallet_type, wallet_number)
+        if err:
+            return JSONResponse({"ok": False, "message": err}, status_code=400)
     fam_key = _family_key_by_prefix(family_prefix)
     if not fam_key:
         return JSONResponse({"ok": False, "message": "Paket tidak ditemukan."}, status_code=404)
