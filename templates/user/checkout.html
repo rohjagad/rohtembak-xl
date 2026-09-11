@@ -168,10 +168,7 @@ function payNow() {
           + '<span class="t-prompt">$</span> sisa saldo      : ' + (res.new_balance != null ? Number(res.new_balance).toLocaleString('id-ID') + ' IDR' : '-');
         if (res.deeplink) {
           paySucceeded = true;
-          box.innerHTML += '\n<div id="deeplink-wrap" style="margin-top:12px;">'
-            + '<a class="btn btn-primary" style="width:auto;" href="' + escapeHtml(res.deeplink) + '">Buka Aplikasi &amp; Bayar &rarr;</a>'
-            + '<div style="margin-top:8px;font-size:.75rem;color:#6b7280;word-break:break-all;">' + escapeHtml(res.deeplink) + '</div>'
-            + '</div>';
+          showEwalletWindow(res.deeplink);
         }
         if (res.qris_img) { paySucceeded = true; showQr(res.qris_img, res.qris_expires_ts || 0); }
       } else {
@@ -267,6 +264,23 @@ document.addEventListener('DOMContentLoaded', function () {
       el.innerHTML = '<strong>Penting:</strong> Harga decoy tidak diketahui (gagal resolve) — pastikan pulsa nomor di bawah harga decoy agar decoy yang terpotong, bukan pulsa utama.';
     }
     el.hidden = false;
+  }
+  function showEwalletWindow(link) {
+    var ov = document.getElementById('ewallet-overlay');
+    document.getElementById('ewallet-link-text').textContent = link;
+    document.getElementById('ewallet-go').href = link;
+    ov.classList.add('show');
+  }
+  function closeEwalletWindow() {
+    document.getElementById('ewallet-overlay').classList.remove('show');
+  }
+  function copyEwalletLink() {
+    var t = document.getElementById('ewallet-link-text').textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText(t);
+    var b = document.getElementById('ewallet-copy');
+    var old = b.textContent;
+    b.textContent = 'Tersalin!';
+    setTimeout(function() { b.textContent = old; }, 1500);
   }
   function bindWalletUI() {
     var wt = document.getElementById('wallet-type');
@@ -450,6 +464,24 @@ document.addEventListener('DOMContentLoaded', function () {
       Sisa waktu: <strong id="qr-timer" style="font-family:ui-monospace,monospace;">—</strong>
     </div>
     <div class="qr-hint">QRIS berlaku sampai transaksi dibayar / kedaluwarsa</div>
+  </div>
+</div>
+
+<div class="qr-overlay" id="ewallet-overlay" onclick="if(event.target===this)closeEwalletWindow()">
+  <div class="qr-window" style="max-width:460px;">
+    <button class="qr-close" onclick="closeEwalletWindow()">&times;</button>
+    <h3>Instruksi E-Wallet</h3>
+    <p style="font-size:.85rem;color:#374151;line-height:1.6;margin:8px 0 12px;">
+      Instruksi pembayaran sudah dibuat. Buka aplikasi e-wallet kamu (DANA / ShopeePay / GoPay / OVO),
+      cek permintaan pembayaran yang masuk, lalu selesaikan sebelum kedaluwarsa.
+      Kalau tombol tidak berfungsi, salin tautan di bawah dan buka manual di browser.
+    </p>
+    <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:12px;">
+      <div style="font-size:.72rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Link pembayaran</div>
+      <div id="ewallet-link-text" style="font-size:.75rem;color:#374151;word-break:break-all;max-height:64px;overflow-y:auto;">—</div>
+      <button type="button" class="btn btn-outline btn-sm" id="ewallet-copy" onclick="copyEwalletLink()" style="margin-top:8px;width:auto;">Salin tautan</button>
+    </div>
+    <a class="btn btn-primary" id="ewallet-go" href="#" style="width:100%;">Buka Aplikasi &amp; Bayar &rarr;</a>
   </div>
 </div>
 
