@@ -6141,6 +6141,9 @@ def _pay_response(user, detail, pay_error, pay_success, method, family_key, opti
                 + "</blockquote>"
             )
         resp = {"ok": True, "message": pay_success, "deducted": fee, "new_balance": new_balance}
+        deeplink = (pay_extra or {}).get("deeplink")
+        if deeplink:
+            resp["deeplink"] = deeplink
         qris_b64 = (pay_extra or {}).get("qris_b64")
         if qris_b64:
             resp["qris_img"] = _qris_png_data_uri(qris_b64)
