@@ -4081,10 +4081,14 @@ def _build_history_rows(active_xl, user):
     qris_txs, qris_codes = _fetch_pending_qris(
         active_xl, tokens=tokens, transactions=xl_transactions
     )
+    ewallet_txs, ewallet_codes = _fetch_pending_ewallet(
+        active_xl, tokens=tokens, transactions=xl_transactions
+    )
     if xl_transactions and isinstance(xl_transactions, dict) and xl_transactions.get("list"):
         xl_transactions["list"] = [
             t for t in xl_transactions["list"]
             if (t.get("code") or "") not in qris_codes
+            and (t.get("code") or "") not in ewallet_codes
         ]
 
     rows = []
@@ -4114,6 +4118,33 @@ def _build_history_rows(active_xl, user):
             "expired": expired,
             "img": "" if ((q.get("status") or "").upper() == "PROCESS" and not expired) else q.get("img") or "",
             "kind": "qris",
+        })
+
+    for e in ewallet_txs:
+        expired = bool(e.get("expired"))
+        te = int(e.get("ts_epoch") or 0)
+        tgl, jam = _tgl_jam_wib(te) if te > 0 else (None, None)
+        raw = e.get("created_at") or ""
+        if tgl is None:
+            if " | " in raw:
+                tgl, jam = raw.split(" | ", 1)
+            else:
+                tgl, jam = (raw or "—"), "—"
+        wtype = e.get("wallet_type") or ""
+        rows.append({
+            "tgl": tgl,
+            "jam": jam,
+            "ts": f"{tgl} | {jam}",
+            "sort": te,
+            "paket": e.get("option_name") or "—",
+            "harga": _fmt_harga(e.get("amount")) or "—",
+            "status": "Expired" if expired else ("Diproses" if (e.get("status") or "").upper() == "PROCESS" else "Pending"),
+            "status_color": "red" if expired else ("green" if (e.get("status") or "").upper() == "PROCESS" else "amber"),
+            "expired": expired,
+            "img": "",
+            "kind": "ewallet",
+            "wallet_type": wtype,
+            "deeplink": e.get("deeplink") or "",
         })
 
     if xl_transactions and isinstance(xl_transactions, dict) and xl_transactions.get("list"):
@@ -5186,7 +5217,7 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
                     elif method == "ewallet":
                         _api_delay()
-                        res = _settle_with_decoy(pay_ewallet, tokens, items, detail, "ewallet", use_decoy, decoy_name,
+                        res = _settle_with_decoy(pay_ewallet, tokens, items, detail, "ewallet", bool(decoy_name), decoy_name or "default",
                                                  wallet=(wallet_type, wallet_number))
                         if res and res.get("status") == "SUCCESS":
                             deeplink = (res.get("data") or {}).get("deeplink") or ""
@@ -5524,16 +5555,21 @@ def _friendly_settle_msg(msg, default="Pembayaran gagal."):
 
 def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_name="default", wallet=None):
     # rewrite_price (dari /prices-xl) menang atas display/api — ini jumlah
-    # yang benar-benar ditagih; item_price PaymentItem TETAP harga asli API.
+    # yang benar-benar ditagih; item_price PaymentItem TETAM harga asli API.
     charge = detail.get("rewrite_price")
     if charge is None:
         charge = detail["price"]
     wallet_type, wallet_number = (wallet or ("", ""))
+    topup_number = detail.get("topup_number") or ""
+    stage_token = detail.get("stage_token") or ""
     if not use_decoy:
         if method == "ewallet":
-            return pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge,
-                          wallet_type=wallet_type, wallet_number=wallet_number)
-        return pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge)
+            pf = (detail.get("payment_for") or "").strip() or "SHARE_PACKAGE"
+            return pay_fn(API_KEY, tokens, items, pf, False, overwrite_amount=charge,
+                          wallet_type=wallet_type, wallet_number=wallet_number,
+                          topup_number=topup_number, stage_token=stage_token)
+        return pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge,
+                      topup_number=topup_number, stage_token=stage_token)
 
     # Decoy per-metode: balance → decoy balance; qris/ewallet → decoy qris
     # (kategori "bayar tunai via app" berbagi katalog decoy yang sama).
@@ -5543,11 +5579,16 @@ def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_n
     overwrite_amount = int(charge or 0) + decoy_price
 
     if method == "qris":
-        return pay_fn(API_KEY, tokens, items_with_decoy, "SHARE_PACKAGE", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
+        return pay_fn(API_KEY, tokens, items_with_decoy, "SHARE_PACKAGE", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1,
+                      topup_number=topup_number, stage_token=stage_token)
 
     if method == "ewallet":
-        return pay_fn(API_KEY, tokens, items_with_decoy, detail["payment_for"], False, overwrite_amount=overwrite_amount,
-                      token_confirmation_idx=1, wallet_type=wallet_type, wallet_number=wallet_number)
+        # XL ewallet endpoint butuh payment_for tidak kosong — pakai "SHARE_PACKAGE"
+        # seperti qris (kosong → REQUEST_BODY_MALFORMED dengan decoy multipayment).
+        pf = (detail.get("payment_for") or "").strip() or "SHARE_PACKAGE"
+        return pay_fn(API_KEY, tokens, items_with_decoy, pf, False, overwrite_amount=overwrite_amount,
+                      token_confirmation_idx=1, wallet_type=wallet_type, wallet_number=wallet_number,
+                      topup_number=topup_number, stage_token=stage_token)
 
     return pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
 
@@ -6036,6 +6077,66 @@ def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
     except Exception as e:
         print(f"[fetch_pending_qris] Error: {e}")
     return qris_txs, matched_codes
+
+
+def _fetch_pending_ewallet(active_xl, tokens=None, transactions=None):
+    """Pending ewallet (DANA/SHOPEEPAY/GOPAY/OVO) — diambil LIVE dari XL setiap
+    kali halaman Riwayat dibuka. Tidak di-cache di DB; deeplink + wallet_type
+    di-resolve via payments/api/v8/pending-detail supaya user bisa lihat/buka
+    lagi tautan pembayaran dari Riwayat Transaksi XL."""
+    ewallet_txs = []
+    matched_codes = set()
+    if not active_xl or not active_xl.refresh_token:
+        return ewallet_txs, matched_codes
+    ewallet_methods = {"DANA", "SHOPEEPAY", "GOPAY", "OVO"}
+    try:
+        if tokens is None:
+            _api_delay()
+            tokens = _get_xl_tokens(active_xl)
+            if not tokens:
+                return ewallet_txs, matched_codes
+        if transactions is None:
+            _api_delay()
+            hist = xl_get_transactions(API_KEY, tokens) or {}
+        else:
+            hist = transactions or {}
+        for trx in hist.get("list", []):
+            pm = (trx.get("payment_method") or "").upper()
+            st = (trx.get("status") or "").upper()
+            if pm not in ewallet_methods or st not in ("READY", "PENDING", "WAITING_PAYMENT", "ONGOING", "PROCESS"):
+                continue
+            code = trx.get("code") or ""
+            if not code or code in matched_codes:
+                continue
+            matched_codes.add(code)
+            payload = {"transaction_id": code, "is_enterprise": False, "lang": "en", "status": ""}
+            _api_delay()
+            res = send_api_request(API_KEY, "payments/api/v8/pending-detail", payload, tokens["id_token"], "POST")
+            if not isinstance(res, dict) or res.get("status") != "SUCCESS":
+                continue
+            detail = res.get("data") or {}
+            deeplink = detail.get("deeplink") or ""
+            wallet_type = (detail.get("payment_method") or pm).upper()
+            # OVO: tidak ada deeplink (user buka manual), tetap tampilkan baris
+            # tapi tanpa tombol — status sudah cukup.
+            st_detail = (detail.get("status") or "").upper()
+            pay_st = (trx.get("payment_status") or "").upper()
+            raw_ts = trx.get("timestamp")
+            expired = st_detail == "EXPIRED" or pay_st == "EXPIRED"
+            ewallet_txs.append({
+                "transaction_id": detail.get("payment_id") or code,
+                "option_name": trx.get("title") or trx.get("product_name") or "Paket",
+                "amount": trx.get("raw_price") or 0,
+                "status": trx.get("status"),
+                "created_at": detail.get("formated_date") or trx.get("formated_date") or "",
+                "ts_epoch": (int(raw_ts) - 7 * 3600) if raw_ts else 0,
+                "wallet_type": wallet_type,
+                "deeplink": deeplink,
+                "expired": expired,
+            })
+    except Exception as e:
+        print(f"[fetch_pending_ewallet] Error: {e}")
+    return ewallet_txs, matched_codes
 
 
 # Guard pembelian konkuren: satu (user, family, opsi, metode) hanya boleh

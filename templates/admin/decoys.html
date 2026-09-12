@@ -67,7 +67,7 @@
 <div class="header-section">
     <div>
         <div class="page-title">Atur Decoy XL</div>
-        <div class="page-subtitle">Kelola paket penambah (decoy) QRIS &amp; Pulsa. Tombol edit untuk mengubah JSON config.</div>
+        <div class="page-subtitle">Kelola paket penambah (decoy). Daftar <strong>QRIS &amp; E-Wallet</strong> dipakai bersama; <strong>Pulsa</strong> terpisah.</div>
     </div>
 </div>
 
@@ -78,7 +78,7 @@
 {% elif deleted %}<div style="color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;padding:10px 14px;border-radius:8px;font-size:13.5px;margin-bottom:14px;">Decoy terhapus.</div>
 {% endif %}
 
-{% for t, tlabel in [("qris", "QRIS"), ("balance", "Pulsa")] %}
+{% for t, tlabel in [("qris", "QRIS & E-Wallet"), ("balance", "Pulsa")] %}
 <div class="card" style="padding:20px 24px;">
     <div class="section-head">
         <div class="section-title">Decoy {{ tlabel }}</div>
@@ -112,7 +112,7 @@
                 {% else %}
                 <tr>
                     <td colspan="4" style="text-align:center;padding:22px 14px;color:#9ca3af;font-size:13px;">
-                        Belum ada decoy {{ tlabel }} — klik <strong style="color:#4361ee;">+ Tambah Decoy {{ tlabel }}</strong> di bawah.
+                        Belum ada decoy {{ tlabel }} — klik <strong style="color:#4361ee;">+ Tambah Decoy</strong> di bawah.
                     </td>
                 </tr>
                 {% endfor %}
@@ -120,7 +120,7 @@
             <tfoot>
                 <tr>
                     <td colspan="4" style="text-align:center;border:none;padding:10px 0;">
-                        <a href="/admin/decoys/new?type={{ t }}" class="btn btn-sm btn-outline">+ Tambah Decoy {{ tlabel }}</a>
+                        <a href="/admin/decoys/new?type={{ t }}" class="btn btn-sm btn-outline">+ Tambah Decoy</a>
                     </td>
                 </tr>
             </tfoot>

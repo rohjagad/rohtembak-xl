@@ -187,10 +187,10 @@
                             <span class="price-hint">Display Price:</span>
                             <input type="number" name="display_price" value="{{ it.display if it.display is not none else '' }}" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
                         </label>
-                        <label style="display:flex;flex-direction:column;gap:4px;">
-                            <span class="price-hint">Rewrite Price:</span>
-                            <input type="number" name="rewrite_price" value="{{ it.rewrite if it.rewrite is not none else '' }}" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
-                        </label>
+                            <label style="display:flex;flex-direction:column;gap:4px;">
+                                <span class="price-hint">Fee QRIS / E-Wallet:</span>
+                                <input type="number" name="fee_qris" value="{{ it.fee_qris }}" min="0" step="1" class="form-control price-input" style="width:100%;" title="Biaya saldo panel per transaksi QRIS / E-Wallet" form="price-form-{{ sec.key }}-{{ it.number }}">
+                            </label>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;">
                             {# PERINGATAN: fee boleh nominal BEBAS (mis. 750) — server terima int >= 0 apa pun; JANGAN step="1000" #}
                             <label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:90px;max-width:110px;">
@@ -203,7 +203,7 @@
                             </label>
                         </div>
                         <label style="display:flex;flex-direction:column;gap:4px;">
-                            <span class="price-hint">Decoy QRIS:</span>
+                            <span class="price-hint">Decoy QRIS / E-Wallet:</span>
                             <div class="select-wrap" style="width:200px;">
                                 <select name="decoy_qris" class="form-control price-input" form="price-form-{{ sec.key }}-{{ it.number }}">
                                     <option value="" {% if not it.decoy_qris or it.decoy_qris in ('none', 'default') %}selected{% endif %}>Tanpa decoy</option>

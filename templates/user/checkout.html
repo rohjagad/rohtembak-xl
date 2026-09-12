@@ -136,6 +136,12 @@ function showEwalletWindow(link) {
 }
 function closeEwalletWindow() {
   document.getElementById('ewallet-overlay').classList.remove('show');
+  // E-wallet overlay yang ditutup SETELAH pembayaran sukses bukan "tertutup tak sengaja".
+  if (paySucceeded) return;
+  document.getElementById('ewalletClosedModal').classList.add('show');
+}
+function closeEwalletClosedModal() {
+  document.getElementById('ewalletClosedModal').classList.remove('show');
 }
 function copyEwalletLink() {
   var t = document.getElementById('ewallet-link-text').textContent;
@@ -423,9 +429,9 @@ document.addEventListener('DOMContentLoaded', function () {
       <div style="font-weight:600;font-size:.82rem;color:#3730a3;margin-bottom:8px;">E-Wallet</div>
       <label style="display:block;font-size:12px;font-weight:600;color:#111827;margin-bottom:4px;">Jenis e-wallet</label>
       <select id="wallet-type" class="form-control" style="margin-bottom:10px;">
-        <option value="DANA">DANA</option>
-        <option value="SHOPEEPAY">ShopeePay</option>
         <option value="GOPAY">GoPay</option>
+        <option value="SHOPEEPAY">ShopeePay</option>
+        <option value="DANA">DANA</option>
         <option value="OVO">OVO</option>
       </select>
       <div id="wallet-number-wrap">
@@ -472,8 +478,7 @@ document.addEventListener('DOMContentLoaded', function () {
     <button class="qr-close" onclick="closeEwalletWindow()">&times;</button>
     <h3>Instruksi E-Wallet</h3>
     <p style="font-size:.85rem;color:#374151;line-height:1.6;margin:8px 0 12px;">
-      Instruksi pembayaran sudah dibuat. Buka aplikasi e-wallet kamu (DANA / ShopeePay / GoPay / OVO),
-      cek permintaan pembayaran yang masuk, lalu selesaikan sebelum kedaluwarsa.
+      Buka aplikasi e-wallet kamu, cek permintaan pembayaran yang masuk, lalu selesaikan sebelum kedaluwarsa.
       Kalau tombol tidak berfungsi, salin tautan di bawah dan buka manual di browser.
     </p>
     <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:12px;">
@@ -507,6 +512,19 @@ document.addEventListener('DOMContentLoaded', function () {
     <div class="modal-actions">
       <a href="/user/xl/history" class="btn btn-primary">Buka Riwayat Transaksi XL</a>
       <button type="button" class="btn btn-outline" onclick="closeQrisClosedModal()">Tutup</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ewalletClosedModal" onclick="if(event.target===this)closeEwalletClosedModal()">
+  <div class="modal">
+    <h3>Tidak sengaja menutup E-Wallet?</h3>
+    <div class="modal-body">
+      <p style="margin:0;">Tautan pembayaran yang masih aktif tetap bisa dibuka lagi. Buka <strong>Riwayat Transaksi XL</strong>, lalu tekan <strong>Refresh Data</strong> terlebih dahulu untuk memuat ulang.</p>
+    </div>
+    <div class="modal-actions">
+      <a href="/user/xl/history" class="btn btn-primary">Buka Riwayat Transaksi XL</a>
+      <button type="button" class="btn btn-outline" onclick="closeEwalletClosedModal()">Tutup</button>
     </div>
   </div>
 </div>

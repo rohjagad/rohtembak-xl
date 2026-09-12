@@ -34,6 +34,8 @@
                 <td data-label="Aksi" style="text-align:right;">
                     {% if r.kind == "qris" and not r.expired and r.img %}
                     <button class="btn btn-sm btn-primary qris-view" onclick="showQr('{{ r.img }}', {{ r.expires_ts or 0 }})">Lihat QR</button>
+                    {% elif r.kind == "ewallet" and not r.expired %}
+                    <button class="btn btn-sm btn-primary ewallet-view" onclick="showEwalletLink('{{ r.deeplink | e }}', '{{ r.wallet_type | e }}')">Lihat {{ r.wallet_type }}</button>
                     {% else %}
                     <span style="color:#d1d5db;">—</span>
                     {% endif %}

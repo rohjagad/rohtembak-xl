@@ -176,6 +176,7 @@ a:hover { text-decoration: underline; }
 }
 .btn-outline:hover { border-color: #4361ee; color: #4361ee; }
 .qris-view { width: auto; }
+.ewallet-view { width: auto; }
 
 .error-msg {
     background: #fef2f2;

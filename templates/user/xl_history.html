@@ -96,6 +96,34 @@ function closeQr() {
   if (qrTimerInt) clearInterval(qrTimerInt);
   qrTimerInt = null;
 }
+function showEwalletLink(link, walletType) {
+  var ov = document.getElementById('ewallet-overlay');
+  var txt = document.getElementById('ewallet-link-text');
+  var lbl = document.getElementById('ewallet-wallet-type');
+  var go = document.getElementById('ewallet-go');
+  if (lbl) lbl.textContent = walletType || '';
+  if (link) {
+    txt.textContent = link;
+    go.href = link;
+    go.style.display = '';
+  } else {
+    txt.textContent = '—';
+    go.style.display = 'none';
+  }
+  ov.classList.add('show');
+}
+function closeEwalletOverlay() {
+  document.getElementById('ewallet-overlay').classList.remove('show');
+}
+function copyEwalletOverlayLink() {
+  var t = (document.getElementById('ewallet-link-text') || {}).textContent || '';
+  if (navigator.clipboard && t && t !== '—') navigator.clipboard.writeText(t);
+  var b = document.getElementById('ewallet-copy');
+  if (!b) return;
+  var prev = b.textContent;
+  b.textContent = 'Tersalin!';
+  setTimeout(function() { b.textContent = prev; }, 1500);
+}
 </script>
 {% endblock %}
 {% block content %}
@@ -135,6 +163,21 @@ function closeQr() {
       Sisa waktu: <strong id="qr-timer" style="font-family:ui-monospace,monospace;">—</strong>
     </div>
     <div class="qr-hint">QRIS berlaku sampai transaksi dibayar / kedaluwarsa</div>
+  </div>
+</div>
+
+<div class="qr-overlay" id="ewallet-overlay" onclick="if(event.target===this)closeEwalletOverlay()">
+  <div class="qr-window" style="max-width:460px;">
+    <button class="qr-close" onclick="closeEwalletOverlay()">&times;</button>
+    <h3>E-Wallet <span id="ewallet-wallet-type" style="color:#4361ee;"></span></h3>
+    <p>Selesaikan pembayaran lewat aplikasi e-wallet.</p>
+    <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:12px;">
+      <div style="font-size:.72rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Link pembayaran</div>
+      <div id="ewallet-link-text" style="font-size:.75rem;color:#374151;word-break:break-all;max-height:64px;overflow-y:auto;">—</div>
+      <button type="button" class="btn btn-outline btn-sm" id="ewallet-copy" onclick="copyEwalletOverlayLink()" style="margin-top:8px;width:auto;">Salin tautan</button>
+    </div>
+    <a class="btn btn-primary" id="ewallet-go" href="#" style="width:100%;">Buka Aplikasi &amp; Bayar &rarr;</a>
+    <div class="qr-hint">Link aktif sampai transaksi dibayar / kedaluwarsa</div>
   </div>
 </div>
 

@@ -10,7 +10,7 @@ from app.client.encrypt import API_KEY, decrypt_xdata, encryptsign_xdata, java_l
 
 # Metode e-wallet multipayment XL (referensi: me-cli-sunset purchase/ewallet.py).
 # DANA/OVO butuh wallet_number (08xx); SHOPEEPAY/GOPAY tidak.
-EWALLET_TYPES = ("DANA", "SHOPEEPAY", "GOPAY", "OVO")
+EWALLET_TYPES = ("GOPAY", "SHOPEEPAY", "DANA", "OVO")
 EWALLET_NEEDS_NUMBER = ("DANA", "OVO")
 
 
@@ -35,6 +35,8 @@ def settlement_ewallet(
     token_confirmation_idx: int = 0,
     wallet_type: str = "",
     wallet_number: str = "",
+    topup_number: str = "",
+    stage_token: str = "",
 ):
     """ask_overwrite ada hanya agar kompatibel dengan pemanggilan generik
     _settle_with_decoy (panel selalu kirim overwrite_amount; tidak ada input
@@ -92,7 +94,8 @@ def settlement_ewallet(
         "total_discount": 0,
         "coupon": "",
         "payment_for": payment_for,
-        "topup_number": "",
+        "topup_number": topup_number,
+        "stage_token": stage_token,
         "is_enterprise": False,
         "autobuy": {
             "is_using_autobuy": False,
@@ -107,7 +110,23 @@ def settlement_ewallet(
         "access_token": tokens["access_token"],
         "is_myxl_wallet": False,
         "wallet_number": wallet_number or "",
-        "additional_data": {},
+        "additional_data": {
+            "original_price": items[0]["item_price"],
+            "is_spend_limit_temporary": False,
+            "migration_type": "",
+            "spend_limit_amount": 0,
+            "is_spend_limit": False,
+            "tax": 0,
+            "benefit_type": "",
+            "quota_bonus": 0,
+            "cashtag": "",
+            "is_family_plan": False,
+            "combo_details": [],
+            "is_switch_plan": False,
+            "discount_recurring": 0,
+            "has_bonus": False,
+            "discount_promo": 0
+        },
         "total_amount": amount_int,
         "total_fee": 0,
         "is_use_point": False,
