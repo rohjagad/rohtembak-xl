@@ -5555,7 +5555,7 @@ def _friendly_settle_msg(msg, default="Pembayaran gagal."):
 
 def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_name="default", wallet=None):
     # rewrite_price (dari /prices-xl) menang atas display/api — ini jumlah
-    # yang benar-benar ditagih; item_price PaymentItem TETAM harga asli API.
+    # yang benar-benar ditagih; item_price PaymentItem TETAP harga asli API.
     charge = detail.get("rewrite_price")
     if charge is None:
         charge = detail["price"]
@@ -5568,7 +5568,7 @@ def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_n
             return pay_fn(API_KEY, tokens, items, pf, False, overwrite_amount=charge,
                           wallet_type=wallet_type, wallet_number=wallet_number,
                           topup_number=topup_number, stage_token=stage_token)
-        return pay_fn(API_KEY, tokens, items, detail["payment_for"], False, overwrite_amount=charge,
+        return pay_fn(API_KEY, tokens, items, detail.get("payment_for", ""), False, overwrite_amount=charge,
                       topup_number=topup_number, stage_token=stage_token)
 
     # Decoy per-metode: balance → decoy balance; qris/ewallet → decoy qris
@@ -5590,7 +5590,8 @@ def _settle_with_decoy(pay_fn, tokens, items, detail, method, use_decoy, decoy_n
                       token_confirmation_idx=1, wallet_type=wallet_type, wallet_number=wallet_number,
                       topup_number=topup_number, stage_token=stage_token)
 
-    return pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1)
+    return pay_fn(API_KEY, tokens, items_with_decoy, "🤫", False, overwrite_amount=overwrite_amount, token_confirmation_idx=1,
+                  topup_number=topup_number, stage_token=stage_token)
 
 
 def _process_payment(active_xl, fam_key, option_number, method, wallet_type="", wallet_number=""):
@@ -6020,18 +6021,21 @@ def _qris_png_data_uri(qris_b64):
         return None
 
 
-def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
-    import base64 as _b64
-    qris_txs = []
+def _fetch_pending_details(active_xl, tokens, transactions, match):
+    """Scaffolding bersama _fetch_pending_qris/_fetch_pending_ewallet: ambil
+    transaksi pending yang cocok `match(method)`, resolve detail via
+    payments/api/v8/pending-detail. Return (list[(trx, detail)], matched_codes).
+    matched_codes = kode transaksi yang sudah dicek (agar tidak dobel di rows)."""
+    found = []
     matched_codes = set()
     if not active_xl or not active_xl.refresh_token:
-        return qris_txs, matched_codes
+        return found, matched_codes
     try:
         if tokens is None:
             _api_delay()
             tokens = _get_xl_tokens(active_xl)
             if not tokens:
-                return qris_txs, matched_codes
+                return found, matched_codes
         if transactions is None:
             _api_delay()
             hist = xl_get_transactions(API_KEY, tokens) or {}
@@ -6040,7 +6044,7 @@ def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
         for trx in hist.get("list", []):
             pm = (trx.get("payment_method") or "").upper()
             st = (trx.get("status") or "").upper()
-            if "QRIS" not in pm or st not in ("READY", "PENDING", "WAITING_PAYMENT", "ONGOING", "PROCESS"):
+            if not match(pm) or st not in ("READY", "PENDING", "WAITING_PAYMENT", "ONGOING", "PROCESS"):
                 continue
             code = trx.get("code") or ""
             if not code or code in matched_codes:
@@ -6051,31 +6055,49 @@ def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
             res = send_api_request(API_KEY, "payments/api/v8/pending-detail", payload, tokens["id_token"], "POST")
             if not isinstance(res, dict) or res.get("status") != "SUCCESS":
                 continue
-            detail = res.get("data") or {}
-            qr_raw = detail.get("qr_code")
-            if not qr_raw:
-                continue
-            qris_b64 = _b64.urlsafe_b64encode(qr_raw.encode()).decode()
-            remaining = int(detail.get("remaining_time") or 0)
-            expires_ts = int(time.time()) + remaining if remaining > 0 else 0
-            st_detail = (detail.get("status") or "").upper()
-            pay_st = (trx.get("payment_status") or "").upper()
-            expired = remaining <= 0 or st_detail == "EXPIRED" or pay_st == "EXPIRED"
-            raw_ts = trx.get("timestamp")
-            qris_txs.append({
-                "transaction_id": detail.get("payment_id") or code,
-                "option_name": trx.get("title") or trx.get("product_name") or "Paket",
-                "amount": trx.get("raw_price") or 0,
-                "status": trx.get("status"),
-                "created_at": detail.get("formated_date") or trx.get("formated_date") or "",
-                "ts_epoch": (int(raw_ts) - 7 * 3600) if raw_ts else 0,
-                "expires_ts": expires_ts,
-                "expired": expired,
-                "img": _qris_png_data_uri(qris_b64),
-                "qris_b64": qris_b64,
-            })
+            found.append((trx, res.get("data") or {}))
     except Exception as e:
-        print(f"[fetch_pending_qris] Error: {e}")
+        print(f"[fetch_pending_details] Error: {e}")
+    return found, matched_codes
+
+
+def _pending_row(trx, detail, code, extra):
+    """Field umum baris riwayat pending (qris & ewallet)."""
+    raw_ts = trx.get("timestamp")
+    row = {
+        "transaction_id": detail.get("payment_id") or code,
+        "option_name": trx.get("title") or trx.get("product_name") or "Paket",
+        "amount": trx.get("raw_price") or 0,
+        "status": trx.get("status"),
+        "created_at": detail.get("formated_date") or trx.get("formated_date") or "",
+        "ts_epoch": (int(raw_ts) - 7 * 3600) if raw_ts else 0,
+    }
+    row.update(extra)
+    return row
+
+
+def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
+    import base64 as _b64
+    qris_txs = []
+    found, matched_codes = _fetch_pending_details(
+        active_xl, tokens, transactions, lambda pm: "QRIS" in pm
+    )
+    for trx, detail in found:
+        qr_raw = detail.get("qr_code")
+        if not qr_raw:
+            continue
+        qris_b64 = _b64.urlsafe_b64encode(qr_raw.encode()).decode()
+        remaining = int(detail.get("remaining_time") or 0)
+        expires_ts = int(time.time()) + remaining if remaining > 0 else 0
+        st_detail = (detail.get("status") or "").upper()
+        pay_st = (trx.get("payment_status") or "").upper()
+        expired = remaining <= 0 or st_detail == "EXPIRED" or pay_st == "EXPIRED"
+        qris_txs.append(_pending_row(trx, detail, trx.get("code") or "", {
+            "expires_ts": expires_ts,
+            "expired": expired,
+            "img": _qris_png_data_uri(qris_b64),
+            "qris_b64": qris_b64,
+        }))
     return qris_txs, matched_codes
 
 
@@ -6085,57 +6107,23 @@ def _fetch_pending_ewallet(active_xl, tokens=None, transactions=None):
     di-resolve via payments/api/v8/pending-detail supaya user bisa lihat/buka
     lagi tautan pembayaran dari Riwayat Transaksi XL."""
     ewallet_txs = []
-    matched_codes = set()
-    if not active_xl or not active_xl.refresh_token:
-        return ewallet_txs, matched_codes
     ewallet_methods = {"DANA", "SHOPEEPAY", "GOPAY", "OVO"}
-    try:
-        if tokens is None:
-            _api_delay()
-            tokens = _get_xl_tokens(active_xl)
-            if not tokens:
-                return ewallet_txs, matched_codes
-        if transactions is None:
-            _api_delay()
-            hist = xl_get_transactions(API_KEY, tokens) or {}
-        else:
-            hist = transactions or {}
-        for trx in hist.get("list", []):
-            pm = (trx.get("payment_method") or "").upper()
-            st = (trx.get("status") or "").upper()
-            if pm not in ewallet_methods or st not in ("READY", "PENDING", "WAITING_PAYMENT", "ONGOING", "PROCESS"):
-                continue
-            code = trx.get("code") or ""
-            if not code or code in matched_codes:
-                continue
-            matched_codes.add(code)
-            payload = {"transaction_id": code, "is_enterprise": False, "lang": "en", "status": ""}
-            _api_delay()
-            res = send_api_request(API_KEY, "payments/api/v8/pending-detail", payload, tokens["id_token"], "POST")
-            if not isinstance(res, dict) or res.get("status") != "SUCCESS":
-                continue
-            detail = res.get("data") or {}
-            deeplink = detail.get("deeplink") or ""
-            wallet_type = (detail.get("payment_method") or pm).upper()
-            # OVO: tidak ada deeplink (user buka manual), tetap tampilkan baris
-            # tapi tanpa tombol — status sudah cukup.
-            st_detail = (detail.get("status") or "").upper()
-            pay_st = (trx.get("payment_status") or "").upper()
-            raw_ts = trx.get("timestamp")
-            expired = st_detail == "EXPIRED" or pay_st == "EXPIRED"
-            ewallet_txs.append({
-                "transaction_id": detail.get("payment_id") or code,
-                "option_name": trx.get("title") or trx.get("product_name") or "Paket",
-                "amount": trx.get("raw_price") or 0,
-                "status": trx.get("status"),
-                "created_at": detail.get("formated_date") or trx.get("formated_date") or "",
-                "ts_epoch": (int(raw_ts) - 7 * 3600) if raw_ts else 0,
-                "wallet_type": wallet_type,
-                "deeplink": deeplink,
-                "expired": expired,
-            })
-    except Exception as e:
-        print(f"[fetch_pending_ewallet] Error: {e}")
+    found, matched_codes = _fetch_pending_details(
+        active_xl, tokens, transactions, lambda pm: pm in ewallet_methods
+    )
+    for trx, detail in found:
+        deeplink = detail.get("deeplink") or ""
+        pm = (trx.get("payment_method") or "").upper()
+        wallet_type = (detail.get("payment_method") or pm).upper()
+        # OVO: tanpa deeplink — baris tetap tampil, tombol buka disembunyikan JS.
+        st_detail = (detail.get("status") or "").upper()
+        pay_st = (trx.get("payment_status") or "").upper()
+        expired = st_detail == "EXPIRED" or pay_st == "EXPIRED"
+        ewallet_txs.append(_pending_row(trx, detail, trx.get("code") or "", {
+            "wallet_type": wallet_type,
+            "deeplink": deeplink,
+            "expired": expired,
+        }))
     return ewallet_txs, matched_codes
 
 
