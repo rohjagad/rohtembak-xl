@@ -19,7 +19,7 @@ services:
       - rohtembak_data:/opt/rohtembak
     networks:
       - common-overlay
-    entrypoint: ["/bin/bash", "-c", "set -e; if ! command -v curl >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null; apt-get install -y curl >/dev/null; fi; if [ -f /opt/rohtembak/entrypoint.sh ]; then cp /opt/rohtembak/entrypoint.sh /usr/local/bin/entrypoint.sh; else curl -fsSL https://raw.githubusercontent.com/rohjagad/rohtembak-xl/main/entrypoint.sh -o /usr/local/bin/entrypoint.sh; fi; chmod +x /usr/local/bin/entrypoint.sh; exec /usr/local/bin/entrypoint.sh"]
+    entrypoint: ["/bin/bash", "-c", "set -e; if ! command -v curl >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null; apt-get install -y curl >/dev/null; fi; if [ ! -f /opt/rohtembak/entrypoint.sh ]; then if ! curl -fsSL https://raw.githubusercontent.com/rohjagad/rohtembak-xl/main/entrypoint.sh -o /opt/rohtembak/entrypoint.sh; then echo '[bootstrap] volume /opt/rohtembak kosong dan entrypoint.sh gagal diambil dari GitHub (repo private?). Provision ulang saat repo publik, atau salin entrypoint.sh ke volume.'; sleep infinity; fi; fi; cp /opt/rohtembak/entrypoint.sh /usr/local/bin/entrypoint.sh; chmod +x /usr/local/bin/entrypoint.sh; exec /usr/local/bin/entrypoint.sh"]
     deploy:
       replicas: 1
       placement:

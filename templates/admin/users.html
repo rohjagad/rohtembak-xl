@@ -240,7 +240,8 @@ function filterUsers() {
     r.style.display = match ? '' : 'none';
     if (match) visible++;
   });
-  document.getElementById('users-empty').style.display = visible ? 'none' : 'block';
+  var em = document.getElementById('users-empty');
+  if (em) em.style.display = visible ? 'none' : 'block';
 }
 document.addEventListener('DOMContentLoaded', function () {
   var search = document.getElementById('user-search');

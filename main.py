@@ -2373,9 +2373,10 @@ def _build_backup_zip_bytes(admin_data: dict, users_data: list, xl_data: list, f
 # =============================================================================
 # Auto Backup (Telegram Bot)
 # -----------------------------------------------------------------------------
-# Backup otomatis harian: seluruh data panel (.env, database, fingerprint)
-# dikemas jadi zip lalu dikirim ke chat Telegram via bot (sendDocument).
-# Konfigurasi minimal: Chat ID + API Key bot, disimpan di data/autobackup.json.
+# Backup otomatis harian: data panel (akun/saldo, fee, harga, pengaturan,
+# decoy, fingerprint) dikemas jadi zip lalu dikirim ke chat Telegram via bot
+# (sendDocument). Database (*.db) dan .env TIDAK ikut. Konfigurasi minimal:
+# Chat ID + token bot, disimpan di data/autobackup.json.
 # =============================================================================
 
 AUTOBACKUP_TIME = "03:00"  # WIB
@@ -3661,6 +3662,8 @@ def set_active_xl(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if user.role != "user":
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
     db.query(XLAccount).filter(
         XLAccount.user_id == user.id, XLAccount.is_active == True
     ).update({"is_active": False})
@@ -3681,6 +3684,8 @@ def add_xl(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if user.role != "user":
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
     if (not phone_number.startswith("628") or len(phone_number) < 10 or len(phone_number) > 14
             or not phone_number.isdigit()):
         ctx = get_user_context(user, db)
@@ -3724,6 +3729,8 @@ def remove_xl(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if user.role != "user":
+        return RedirectResponse(url="/admin/dashboard", status_code=303)
     xl = db.query(XLAccount).filter(
         XLAccount.id == xl_id, XLAccount.user_id == user.id
     ).first()
@@ -5198,6 +5205,7 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
                         elif res and res.get("status") == "UNKNOWN":
                             pay_error = "Status pembelian tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
+                            pay_extra["indeterminate"] = True
                         else:
                             pay_error = _friendly_settle_msg(
                                 res.get("message") if isinstance(res, dict) else None,
@@ -5215,6 +5223,14 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                                 pay_success = "QRIS berhasil dibuat di MyXL, tapi kode QR gagal dimuat. Buka Riwayat Transaksi XL untuk melihatnya."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
+                        elif isinstance(qris_result, dict) and qris_result.get("status") == "UNKNOWN":
+                            pay_error = "Status pembayaran tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
+                            pay_extra["indeterminate"] = True
+                        else:
+                            pay_error = _friendly_settle_msg(
+                                qris_result.get("message") if isinstance(qris_result, dict) else None,
+                                default="Pembayaran gagal."
+                            )
                     elif method == "ewallet":
                         _api_delay()
                         res = _settle_with_decoy(pay_ewallet, tokens, items, detail, "ewallet", bool(decoy_name), decoy_name or "default",
@@ -5229,6 +5245,7 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                                 pay_success = f"Instruksi pembayaran {wallet_type} dibuat — selesaikan lewat aplikasi {wallet_type}."
                         elif res and res.get("status") == "UNKNOWN":
                             pay_error = "Status pembayaran tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
+                            pay_extra["indeterminate"] = True
                         else:
                             pay_error = _friendly_settle_msg(
                                 res.get("message") if isinstance(res, dict) else None,
@@ -5628,6 +5645,7 @@ def _process_payment(active_xl, fam_key, option_number, method, wallet_type="", 
                             pay_success = "Pembelian berhasil! Silakan cek aplikasi MyXL."
                         elif res and res.get("status") == "UNKNOWN":
                             pay_error = "Status pembelian tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
+                            pay_extra["indeterminate"] = True
                         else:
                             pay_error = _friendly_settle_msg(
                                 res.get("message") if isinstance(res, dict) else None,
@@ -5645,6 +5663,14 @@ def _process_payment(active_xl, fam_key, option_number, method, wallet_type="", 
                                 pay_success = "QRIS berhasil dibuat di MyXL, tapi kode QR gagal dimuat. Buka Riwayat Transaksi XL untuk melihatnya."
                             pay_extra["qris_b64"] = qris_b64
                             pay_extra["qris_remaining"] = int(qris_remaining or 0)
+                        elif isinstance(qris_result, dict) and qris_result.get("status") == "UNKNOWN":
+                            pay_error = "Status pembayaran tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
+                            pay_extra["indeterminate"] = True
+                        else:
+                            pay_error = _friendly_settle_msg(
+                                qris_result.get("message") if isinstance(qris_result, dict) else None,
+                                default="Pembayaran gagal."
+                            )
                     elif method == "ewallet":
                         _api_delay()
                         res = _settle_with_decoy(pay_ewallet, tokens, items, detail, "ewallet", use_decoy, decoy_name,
@@ -5659,6 +5685,7 @@ def _process_payment(active_xl, fam_key, option_number, method, wallet_type="", 
                                 pay_success = f"Instruksi pembayaran {wallet_type} dibuat — selesaikan lewat aplikasi {wallet_type}."
                         elif res and res.get("status") == "UNKNOWN":
                             pay_error = "Status pembayaran tidak diketahui (koneksi terputus) — CEK RIWAYAT TRANSAKSI di MyXL sebelum mencoba lagi."
+                            pay_extra["indeterminate"] = True
                         else:
                             pay_error = _friendly_settle_msg(
                                 res.get("message") if isinstance(res, dict) else None,
@@ -6166,7 +6193,7 @@ def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method, fe
                 "ok": False,
                 "message": "Terjadi kesalahan saat memproses pembelian — biaya konsumsi sudah dikembalikan. Coba lagi."
             }, status_code=500)
-        if not pay_success:
+        if not pay_success and not (pay_extra or {}).get("indeterminate"):
             _refund_token_balance(user, fee, f"Refund {desc} (pembelian gagal)")
         return _pay_response(user, detail, pay_error, pay_success, method, family_key, option_number, pay_extra,
                              phone_number=getattr(ctx.get("active_xl"), "phone_number", "") or "",
@@ -6426,9 +6453,7 @@ def _reconcile_pending_topups():
         return
     db = next(get_db())
     try:
-        cutoff = datetime.now(timezone.utc)
-        if cutoff.tzinfo is not None:
-            cutoff = cutoff.replace(tzinfo=None)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None)
         # Baru lewat masa berlaku: cek sekali (deteksi pembayaran yang masuk).
         rows = db.query(TopupTransaction).filter(
             TopupTransaction.status == "waiting",

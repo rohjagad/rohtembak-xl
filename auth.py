@@ -23,10 +23,16 @@ _PUBLIC_FALLBACKS = {
 
 _jwt_secret_cache: str | None = None
 _jwt_secret_mtime: float | None = None
+_jwt_epoch_cache: str | None = None
+_jwt_epoch_mtime: float | None = None
 
 
 def _secret_file_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "jwt_secret")
+
+
+def _epoch_file_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "jwt_epoch")
 
 
 def _current_jwt_secret() -> str:
@@ -60,24 +66,58 @@ def _current_jwt_secret() -> str:
     return val
 
 
-def rotate_jwt_secret() -> bool:
-    """Buang secret lama -> cookie sesi semua user langsung invalid.
-
-    Dipakai setelah restore backup (user id bisa bergeser). Return False
-    bila JWT_SECRET di-set via env (rotasi file tidak berpengaruh).
-    """
-    global _jwt_secret_cache, _jwt_secret_mtime
-    env_val = os.getenv("JWT_SECRET", "").strip()
-    if env_val and env_val not in _PUBLIC_FALLBACKS:
-        return False
+def _current_jwt_epoch() -> str:
+    """Epoch sesi per-install, disertakan sebagai claim `epo` di tiap token.
+    Rotasi file ini membatalkan SEMUA cookie lama walau JWT_SECRET di-set via
+    env (yang tak bisa dirotasi dari sini)."""
+    global _jwt_epoch_cache, _jwt_epoch_mtime
+    path = _epoch_file_path()
     try:
-        os.remove(_secret_file_path())
+        mtime = os.stat(path).st_mtime
+    except OSError:
+        mtime = None
+    if _jwt_epoch_cache is not None and mtime == _jwt_epoch_mtime:
+        return _jwt_epoch_cache
+    val = None
+    if mtime is not None:
+        with open(path, encoding="utf-8") as f:
+            val = f.read().strip()
+    if not val:
+        val = secrets.token_urlsafe(16)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(val)
+            f.write("\n")
+        mtime = os.stat(path).st_mtime
+    _jwt_epoch_cache = val
+    _jwt_epoch_mtime = mtime
+    return val
+
+
+def rotate_jwt_secret() -> bool:
+    """Buang session epoch -> cookie sesi semua user langsung invalid.
+
+    Dipakai setelah restore backup (user id bisa bergeser). Rotasi epoch file
+    selalu berhasil walau JWT_SECRET di-set via env.
+    """
+    global _jwt_secret_cache, _jwt_secret_mtime, _jwt_epoch_cache, _jwt_epoch_mtime
+    try:
+        os.remove(_epoch_file_path())
     except FileNotFoundError:
         pass
-    _jwt_secret_cache = None
-    _jwt_secret_mtime = None
-    # Regenerasi segera agar file baru sudah ada untuk boot berikutnya.
-    _current_jwt_secret()
+    _jwt_epoch_cache = None
+    _jwt_epoch_mtime = None
+    # JWT_SECRET dari file ikut dirotasi; kalau env, lewati (tidak berpengaruh).
+    env_val = os.getenv("JWT_SECRET", "").strip()
+    if not (env_val and env_val not in _PUBLIC_FALLBACKS):
+        try:
+            os.remove(_secret_file_path())
+        except FileNotFoundError:
+            pass
+        _jwt_secret_cache = None
+        _jwt_secret_mtime = None
+        _current_jwt_secret()
+    _current_jwt_epoch()
     return True
 
 
@@ -107,16 +147,20 @@ def verify_password(plain_password: str, stored_password: str) -> bool:
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "epo": _current_jwt_epoch()})
     return jwt.encode(to_encode, _current_jwt_secret(), algorithm=ALGORITHM)
 
 
 def decode_token(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, _current_jwt_secret(), algorithms=[ALGORITHM])
-        return payload
     except JWTError:
         return None
+    # Epoch cocok = sesi belum dirotasi (restore/mini-logout tetap efektif
+    # walau JWT_SECRET via env tak bisa dirotasi).
+    if payload.get("epo") != _current_jwt_epoch():
+        return None
+    return payload
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:

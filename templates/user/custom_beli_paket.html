@@ -169,7 +169,7 @@ function browseFc(fc, mode) {
         box.innerHTML = '';
       }
     })
-    .catch(function(err) { if (err === "session") return; 
+    .catch(function(e) { if (e === "session") return; 
       if (err) { err.textContent = 'Gagal terhubung. Coba lagi.'; err.hidden = false; }
       box.innerHTML = '';
     });

@@ -18,7 +18,7 @@
             <button class="btn btn-sm btn-outline">Aktifkan</button>
         </form>
         {% endif %}
-        <form method="POST" action="/user/xl/remove" style="display:inline" onsubmit="return confirm('Hapus nomor {{ xl.phone_number }}?')">
+        <form method="POST" action="/user/xl/remove" style="display:inline" onsubmit='return confirm("Hapus nomor " + {{ xl.phone_number | tojson }} + "?")'>
             <input type="hidden" name="xl_id" value="{{ xl.id }}">
             <button class="btn btn-sm btn-danger">Hapus</button>
         </form>
