@@ -5240,7 +5240,7 @@ def _process_payment_custom(active_xl, family_code, option_number, method, charg
                         res = _settle_with_decoy(pay_ewallet, tokens, items, detail, "ewallet", bool(decoy_name), decoy_name or "default",
                                                  wallet=(wallet_type, wallet_number))
                         if res and res.get("status") == "SUCCESS":
-                            deeplink = (res.get("data") or {}).get("deeplink") or ""
+                            deeplink = (res.get("data") or {}).get("deeplink") or (res.get("data") or {}).get("deeplink_url") or ""
                             pay_extra["deeplink"] = deeplink
                             pay_extra["wallet_type"] = method
                             if wallet_type == "OVO" or not deeplink:
@@ -5680,7 +5680,7 @@ def _process_payment(active_xl, fam_key, option_number, method, wallet_type="", 
                         res = _settle_with_decoy(pay_ewallet, tokens, items, detail, "ewallet", use_decoy, decoy_name,
                                                  wallet=(wallet_type, wallet_number))
                         if res and res.get("status") == "SUCCESS":
-                            deeplink = (res.get("data") or {}).get("deeplink") or ""
+                            deeplink = (res.get("data") or {}).get("deeplink") or (res.get("data") or {}).get("deeplink_url") or ""
                             pay_extra["deeplink"] = deeplink
                             pay_extra["wallet_type"] = method
                             if wallet_type == "OVO" or not deeplink:
@@ -6143,7 +6143,9 @@ def _fetch_pending_ewallet(active_xl, tokens=None, transactions=None):
         active_xl, tokens, transactions, lambda pm: pm in ewallet_methods
     )
     for trx, detail in found:
-        deeplink = detail.get("deeplink") or ""
+        # XL pending-detail memakai "deeplink_url"; settlement memakai
+        # "deeplink" — baca keduanya agar tombol bayar di Riwayat tidak kosong.
+        deeplink = detail.get("deeplink") or detail.get("deeplink_url") or ""
         pm = (trx.get("payment_method") or "").upper()
         wallet_type = (detail.get("payment_method") or pm).upper()
         # OVO: tanpa deeplink — baris tetap tampil, tombol buka disembunyikan JS.
