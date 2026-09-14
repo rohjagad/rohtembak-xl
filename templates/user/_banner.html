@@ -60,7 +60,7 @@
         <div class="banner-stats collapsed" id="banner-stats">
         <div class="banner-item">
             <div class="label">Pulsa</div>
-            <div class="value" data-banner="pulsa">{% if xl_info and xl_info.main_credit %}{{ xl_info.main_credit|rupiah }} IDR{% else %}—{% endif %}</div>
+            <div class="value" data-banner="pulsa">{% if xl_info and xl_info.main_credit is not none %}{{ xl_info.main_credit|rupiah }} IDR{% else %}—{% endif %}</div>
         </div>
         <div class="banner-item">
             <div class="label">Masa Aktif</div>

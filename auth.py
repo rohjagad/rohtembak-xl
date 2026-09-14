@@ -122,7 +122,11 @@ def rotate_jwt_secret() -> bool:
 
 
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = float(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+try:
+    ACCESS_TOKEN_EXPIRE_MINUTES = float(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+except (TypeError, ValueError):
+    print("[config] ACCESS_TOKEN_EXPIRE_MINUTES tidak valid — pakai 60")
+    ACCESS_TOKEN_EXPIRE_MINUTES = 60.0
 
 
 # ─── Password storage ─────────────────────────────────────────────────────────

@@ -90,7 +90,7 @@
         </p>
         <div class="restore-result-summary">
             <div><span>Username admin</span><div class="val">{{ result.admin }}</div></div>
-            <div><span>Pengguna dibuat</span><div class="val">{{ result.users_restored }}</div></div>
+            <div><span>Pengguna dibuat</span><div class="val">{{ result.users_restored }}{% if result.users_skipped %} · dilewati {{ result.users_skipped }}{% endif %}</div></div>
             <div><span>Nomor XL</span><div class="val">dipulihkan <strong>{{ result.xl_restored }}</strong>{% if result.xl_skipped %} · dilewati {{ result.xl_skipped }}{% endif %}</div></div>
             <div><span>Fee paket</span><div class="val">dipulihkan <strong>{{ result.fees_restored }}</strong></div></div>
             <div><span>Harga paket</span><div class="val">dipulihkan <strong>{{ result.prices_restored }}</strong></div></div>

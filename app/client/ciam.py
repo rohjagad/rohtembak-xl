@@ -74,6 +74,11 @@ def get_otp(contact: str, username: str) -> str:
             raise ValueError("Subscriber ID not found in response")
         
         return json_body["subscriber_id"]
+    except requests.RequestException as e:
+        # Jaringan/gateway mati BUKAN nomor salah — lempar agar caller lapor
+        # "gagal mengirim", bukan "nomor tidak valid".
+        print(f"Error requesting OTP: {e}")
+        raise
     except Exception as e:
         print(f"Error requesting OTP: {e}")
         return None

@@ -60,7 +60,7 @@
 </style>
 <script>
 window.BANNER_SSE = false;
-var DETAIL_FC = "{{ fc }}";
+var DETAIL_FC = {{ fc | tojson }};
 var DETAIL_N = {{ n }};
 var PIN_MODE = {{ 'true' if pin_mode else 'false' }};
 var PIN_IDX = {{ pin if pin_mode else 0 }};
@@ -164,12 +164,12 @@ function renderError(msg) {
 }
 function loadDetail() {
   fetch(DETAIL_URL, { credentials: 'same-origin' })
-    .then(function(r) { return r.json(); })
+    .then(function(r) { if (r.status === 401) { location.href = '/login'; return Promise.reject('session'); } return r.json(); })
     .then(function(res) {
       if (res.ok && res.detail) renderDetail(res.detail);
       else renderError(res.error || 'Gagal memuat detail paket.');
     })
-    .catch(function() { renderError('Gagal terhubung. Coba lagi.'); });
+    .catch(function(e) { if (e === "session") return; renderError('Gagal terhubung. Coba lagi.'); });
 }
 function refreshPageData() {
   document.getElementById('detail-root').innerHTML = '<div class="card detail-loading"><div class="skel-spinner"></div><div class="detail-loading-text">Memuat detail paket...</div></div>';

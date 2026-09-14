@@ -138,15 +138,25 @@ jinja_env.filters["datetimeformat"] = lambda ts: _fmt_xl_expiry(ts) or "—"
 jinja_env.filters["quotabyte"] = format_quota_byte
 jinja_env.filters["rupiah"] = lambda n: _fmt_idr(n)
 
-API_DELAY = float(os.getenv("API_DELAY", "2.0"))
-_XL_CALL_LIMIT = max(1, int(os.getenv("XL_CALL_LIMIT", "6")))
+def _num_env(name, default, cast=int):
+    """Baca angka dari env; nilai sampah/kosong → default + peringatan jelas
+    (bukan ValueError saat import yang bikin crash-loop)."""
+    try:
+        return cast(os.getenv(name, ""))
+    except (TypeError, ValueError):
+        print(f"[config] {name} tidak valid — pakai default {default}")
+        return default
 
-TOPUP_MIN_AMOUNT = int(os.getenv("TOPUP_MIN_AMOUNT", "5000"))
-TOPUP_MAX_AMOUNT = int(os.getenv("TOPUP_MAX_AMOUNT", "1000000"))
-TOPUP_FEE_MIN = int(os.getenv("TOPUP_FEE_MIN", "1"))
-TOPUP_FEE_MAX = int(os.getenv("TOPUP_FEE_MAX", "250"))
+
+API_DELAY = _num_env("API_DELAY", 2.0, float)
+_XL_CALL_LIMIT = max(1, _num_env("XL_CALL_LIMIT", 6))
+
+TOPUP_MIN_AMOUNT = _num_env("TOPUP_MIN_AMOUNT", 5000)
+TOPUP_MAX_AMOUNT = _num_env("TOPUP_MAX_AMOUNT", 1000000)
+TOPUP_FEE_MIN = _num_env("TOPUP_FEE_MIN", 1)
+TOPUP_FEE_MAX = _num_env("TOPUP_FEE_MAX", 250)
 TOPUP_QR_TTL_SECONDS = 5 * 60
-TOPUP_CHECK_INTERVAL = int(os.getenv("TOPUP_CHECK_INTERVAL", "20"))
+TOPUP_CHECK_INTERVAL = _num_env("TOPUP_CHECK_INTERVAL", 20)
 TOPUP_MAX_PENDING_PER_USER = 3
 TOPUP_MANUAL_CHECK_COOLDOWN = 5 * 60
 _APP_START_TS = time.time()
@@ -307,6 +317,9 @@ def _get_xl_tokens(active_xl, username=""):
                 acct = db2.query(XLAccount).filter(XLAccount.id == active_xl.id).first()
                 if acct:
                     acct.refresh_token = ""
+                    # Token mati = nomor tak bisa dipakai — jangan biarkan
+                    # tetap aktif (setiap request gagal + menutupi nomor sehat).
+                    acct.is_active = False
                     db2.commit()
             except Exception as e:
                 print(f"[clear_refresh] Error: {e}")
@@ -2933,7 +2946,9 @@ def _load_backup_v3(zf) -> dict | None:
     except (KeyError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     if manifest.get("version") != 3:
-        return None
+        # Manifest terbaca tapi versi asing (mis. v4 masa depan) — JANGAN
+        # parse sebagai legacy; tolak eksplisit.
+        raise ValueError("Versi backup tidak didukung (butuh v3).")
 
     def read(name):
         try:
@@ -3274,9 +3289,11 @@ async def admin_restore_upload(
     # 1. Validate everything BEFORE wiping so a bad file never destroys data
     valid_users = []
     seen = set()
+    users_skipped = 0
     for entry in data["users"] or []:
         e = _validate_restore_entry(entry)
         if e is None or e["username"] in seen:
+            users_skipped += 1
             continue
         seen.add(e["username"])
         valid_users.append(e)
@@ -3604,6 +3621,7 @@ async def admin_restore_upload(
         "decoys_restored": decoys_restored,
         "families_restored": families_restored,
         "topups_discarded": topups_discarded,
+        "users_skipped": users_skipped,
     }
     if valid_settings is not None:
         result["settings_applied"] = settings_applied
@@ -3611,7 +3629,12 @@ async def admin_restore_upload(
             result["settings_reset_default"] = True
     # Rotasi JWT secret: user id bisa bergeser setelah restore — cookie lama
     # yang masih menunjuk id lama HARUS mati seketika (anti cross-account).
-    result["sessions_invalidated"] = rotate_jwt_secret()
+    # Restore sendiri sudah sukses; rotasi yang gagal jangan jadi 500.
+    try:
+        result["sessions_invalidated"] = rotate_jwt_secret()
+    except Exception as e:
+        print(f"[restore] rotasi sesi gagal: {e}")
+        result["sessions_invalidated"] = False
     if device_fp_ok is not None:
         result["device_fp_restored"] = device_fp_ok
         if not device_fp_ok:
@@ -5033,7 +5056,7 @@ def user_xl_custom_browse(fc: str = "", pin: int = 0, user: User = Depends(get_c
 
 
 @app.get("/user/xl/custom/detail")
-def user_xl_custom_detail_json(fc: str = "", pin: int = 0, n: int = 0, user: User = Depends(get_current_user)):
+def user_xl_custom_detail_json(fc: str = "", pin: int = 0, n: int = 0, user: User = Depends(get_current_user_api)):
     if user.role != "user":
         return JSONResponse({"ok": False, "error": "Akses ditolak"}, status_code=403)
     fc = _resolve_custom_fc(fc, pin)
@@ -5153,7 +5176,8 @@ def user_xl_custom_pay(request: Request, n: int, method: str, fc: str = "", pin:
     return _pay_with_fee(user, ctx,
                          lambda: _process_payment_custom(ctx.get("active_xl"), family_code, n, method, charge, decoy,
                                                          wallet_type, wallet_number),
-                         CUSTOM_FAMILY_KEY, n, method, fee=fee)
+                         CUSTOM_FAMILY_KEY, n, method, fee=fee,
+                         key_extra=(family_code, charge, decoy, wallet_type, wallet_number))
 
 
 def _process_payment_custom(active_xl, family_code, option_number, method, charge, decoy_name="", wallet_type="", wallet_number=""):
@@ -5693,6 +5717,13 @@ def _deduct_token_balance(user, amount, description):
     try:
         with _balance_lock:
             bal = db.query(Balance).filter(Balance.user_id == user.id).first()
+            if amount <= 0:
+                # Fee nol (promo/gratis): jangan tulis ledger, pastikan baris ada.
+                if not bal:
+                    bal = Balance(user_id=user.id, balance=0)
+                    db.add(bal)
+                    db.commit()
+                return bal.balance
             if not bal or bal.balance < amount:
                 return None
             bal.balance -= amount
@@ -5963,6 +5994,34 @@ def checkout_paket(request: Request, family_prefix: str, option_number: int, met
     ctx.update({"request": request, **cc})
     return render("user/checkout.html", context=ctx)
 
+
+def _fee_configured(family_key: str, option_number: int, method: str) -> bool:
+    """True bila ada fee eksplisit (override paket / family / default kode).
+    Family baru tanpa konfigurasi fee apa pun JANGAN lolos gratis."""
+    mkey = "balance" if method == "balance" else "qris"
+    if option_number is not None:
+        db = next(get_db())
+        try:
+            row = db.query(PackagePrice).filter(
+                PackagePrice.family_key == family_key,
+                PackagePrice.option_number == option_number,
+            ).first()
+            if row is not None:
+                val = row.fee_pulsa if method == "balance" else row.fee_qris
+                if val is not None:
+                    return True
+        finally:
+            db.close()
+    key = _fee_key(family_key, mkey)
+    if key in FAMILY_FEE_DEFAULTS:
+        return True
+    db = next(get_db())
+    try:
+        return db.query(FamilyFee).filter(FamilyFee.family_key == key).first() is not None
+    finally:
+        db.close()
+
+
 def _panel_fee_precheck(user, family_key: str, option_number: int, method: str, fee: int | None = None):
     """Return an error response when panel saldo cannot cover the fee; else None.
 
@@ -5970,11 +6029,16 @@ def _panel_fee_precheck(user, family_key: str, option_number: int, method: str, 
     The authoritative re-check happens in _deduct_token_balance at settle time.
     """
     if fee is None:
+        if family_key not in _family_registry() or not _fee_configured(family_key, option_number, method):
+            return JSONResponse({
+                "ok": False,
+                "message": "Paket ini belum dikonfigurasi admin (fee). Coba lagi nanti."
+            }, status_code=400)
         fee = _pkg_fee(family_key, option_number, method)
     db = next(get_db())
     try:
         bal = db.query(Balance).filter(Balance.user_id == user.id).first()
-        if not bal or bal.balance < fee:
+        if fee and (not bal or bal.balance < fee):
             return JSONResponse({
                 "ok": False,
                 "message": f"Saldo panel tidak cukup. Butuh {_fmt_idr(fee)} IDR, saldo kamu {_fmt_idr(bal.balance if bal else 0)} IDR."
@@ -6011,7 +6075,8 @@ def pay_paket(request: Request, family_prefix: str, option_number: int, method: 
     db.close()
     return _pay_with_fee(user, ctx,
                          lambda: _process_payment(ctx.get("active_xl"), fam_key, option_number, method, wallet_type, wallet_number),
-                         fam_key, option_number, method)
+                         fam_key, option_number, method,
+                         key_extra=(wallet_type, wallet_number) if method == "ewallet" else ())
 
 def _qris_png_data_uri(qris_b64):
     import base64 as _b64
@@ -6053,33 +6118,51 @@ def _fetch_pending_details(active_xl, tokens, transactions, match):
         for trx in hist.get("list", []):
             pm = (trx.get("payment_method") or "").upper()
             st = (trx.get("status") or "").upper()
-            if not match(pm) or st not in ("READY", "PENDING", "WAITING_PAYMENT", "ONGOING", "PROCESS"):
+            if not match(pm) or st not in ("READY", "PENDING", "WAITING_PAYMENT", "WAITING_FOR_PAYMENT", "ONGOING", "PROCESS"):
                 continue
             code = trx.get("code") or ""
             if not code or code in matched_codes:
                 continue
-            matched_codes.add(code)
             payload = {"transaction_id": code, "is_enterprise": False, "lang": "en", "status": ""}
             _api_delay()
             res = send_api_request(API_KEY, "payments/api/v8/pending-detail", payload, tokens["id_token"], "POST")
             if not isinstance(res, dict) or res.get("status") != "SUCCESS":
+                # Detail gagal dibaca — JANGAN tandai matched agar transaksi
+                # tetap tampil di daftar utama (bukan hilang total).
                 continue
+            matched_codes.add(code)
             found.append((trx, res.get("data") or {}))
     except Exception as e:
         print(f"[fetch_pending_details] Error: {e}")
     return found, matched_codes
 
 
+def _remaining_expired(detail):
+    """True bila XL bilang waktu habis. Field absen/tak-terbaca ≠ habis —
+    jangan paksa Expired pada pending segar (bikin user buat dobel)."""
+    raw = (detail or {}).get("remaining_time")
+    if raw is None:
+        return False
+    try:
+        return int(raw) <= 0
+    except (TypeError, ValueError):
+        return False
+
+
 def _pending_row(trx, detail, code, extra):
     """Field umum baris riwayat pending (qris & ewallet)."""
     raw_ts = trx.get("timestamp")
+    try:
+        ts_epoch = (int(raw_ts) - 7 * 3600) if raw_ts else 0
+    except (TypeError, ValueError):
+        ts_epoch = 0
     row = {
         "transaction_id": detail.get("payment_id") or code,
         "option_name": trx.get("title") or trx.get("product_name") or "Paket",
         "amount": trx.get("raw_price") or 0,
         "status": trx.get("status"),
         "created_at": detail.get("formated_date") or trx.get("formated_date") or "",
-        "ts_epoch": (int(raw_ts) - 7 * 3600) if raw_ts else 0,
+        "ts_epoch": ts_epoch,
     }
     row.update(extra)
     return row
@@ -6096,11 +6179,14 @@ def _fetch_pending_qris(active_xl, tokens=None, transactions=None):
         if not qr_raw:
             continue
         qris_b64 = _b64.urlsafe_b64encode(qr_raw.encode()).decode()
-        remaining = int(detail.get("remaining_time") or 0)
+        try:
+            remaining = int(detail.get("remaining_time") or 0)
+        except (TypeError, ValueError):
+            remaining = 0
         expires_ts = int(time.time()) + remaining if remaining > 0 else 0
         st_detail = (detail.get("status") or "").upper()
         pay_st = (trx.get("payment_status") or "").upper()
-        expired = remaining <= 0 or st_detail == "EXPIRED" or pay_st == "EXPIRED"
+        expired = _remaining_expired(detail) or st_detail == "EXPIRED" or pay_st == "EXPIRED"
         qris_txs.append(_pending_row(trx, detail, trx.get("code") or "", {
             "expires_ts": expires_ts,
             "expired": expired,
@@ -6131,8 +6217,7 @@ def _fetch_pending_ewallet(active_xl, tokens=None, transactions=None):
         pay_st = (trx.get("payment_status") or "").upper()
         # Sama seperti QRIS: XL lama mengubah status (masih WAITING_FOR_PAYMENT
         # dengan remaining_time 0) — anggap kedaluwarsa agar tidak "Pending" abadi.
-        remaining = int(detail.get("remaining_time") or 0)
-        expired = remaining <= 0 or st_detail == "EXPIRED" or pay_st == "EXPIRED"
+        expired = _remaining_expired(detail) or st_detail == "EXPIRED" or pay_st == "EXPIRED"
         ewallet_txs.append(_pending_row(trx, detail, trx.get("code") or "", {
             "wallet_type": wallet_type,
             "deeplink": deeplink,
@@ -6147,13 +6232,16 @@ def _fetch_pending_ewallet(active_xl, tokens=None, transactions=None):
 _PAY_INFLIGHT: dict = {}
 _PAY_INFLIGHT_LOCK = threading.Lock()
 
-def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method, fee: int | None = None):
+def _pay_with_fee(user, ctx, run_purchase, family_key, option_number, method, fee: int | None = None, key_extra: tuple = ()):
     """Bayar biaya konsumsi panel SEBELUM purchase XL, refund kalau gagal.
 
     Menutup celah: dua order konkuren yang sama-sama lolos precheck tidak
     lagi bisa mengantre paket tanpa fee — saldo sudah terpotong di depan.
     """
-    inflight_key = (user.id, family_key, option_number, method)
+    # Kunci = paketnya, bukan metodenya: order paralel paket yang sama via
+    # rail berbeda tetap 1 proses. key_extra membedakan varian yang sah
+    # beda (wallet custom / katalog-charge-decoy custom).
+    inflight_key = (user.id, family_key, option_number) + tuple(key_extra or ())
     with _PAY_INFLIGHT_LOCK:
         if _PAY_INFLIGHT.get(inflight_key):
             return JSONResponse({
@@ -6630,7 +6718,7 @@ def topup_create(amount: int = Form(...), user: User = Depends(get_current_user_
 
 
 @app.get("/user/topup/qr/{topup_id}")
-def topup_qr_image(topup_id: int, user: User = Depends(get_current_user)):
+def topup_qr_image(topup_id: int, user: User = Depends(get_current_user_api)):
     """Fetch the QRIS PNG live from the payment gateway (no DB storage).
 
     Gateway harus online: kalau tidak, QR tidak bisa ditampilkan dan user
