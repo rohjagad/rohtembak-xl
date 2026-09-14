@@ -57,6 +57,7 @@
     </div>
     <form method="post" action="/admin/penghasilan/hapus"
           onsubmit="return confirm('Hapus seluruh data tabel transaksi? Tindakan ini tidak dapat dibatalkan.');">
+        <input type="hidden" name="confirm" value="ya">
         <button type="submit" class="btn btn-outline btn-sm income-clear-btn">Hapus Data Tabel</button>
     </form>
 </div>

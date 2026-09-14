@@ -2031,9 +2031,13 @@ def admin_set_balance(
 # ─── Admin Backup ───────────────────────────────────────────────────────────
 
 @app.post("/admin/penghasilan/hapus")
-def admin_penghasilan_hapus(request: Request, user: User = Depends(get_current_user)):
+def admin_penghasilan_hapus(request: Request, confirm: str = Form(""), user: User = Depends(get_current_user)):
     if user.role != "admin":
         return RedirectResponse(url="/user/dashboard", status_code=303)
+    if confirm.strip().lower() != "ya":
+        # Tanpa konfirmasi eksplisit jangan hapus apa pun (anti skrip /
+        # double-submit / POST nyasar). Form resmi selalu kirim confirm=ya.
+        return RedirectResponse(url="/admin/penghasilan", status_code=303)
     db = next(get_db())
     db.query(BalanceTransaction).delete()
     db.commit()
