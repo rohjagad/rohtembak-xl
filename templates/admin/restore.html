@@ -106,6 +106,9 @@
             {% if result.device_fp_restored is defined %}
             <div><span>Identitas perangkat (ax.fp)</span><div class="val">{% if result.device_fp_restored %}dipulihkan{% else %}gagal{% endif %}{% if result.device_fp_error %} — {{ result.device_fp_error }}{% endif %}</div></div>
             {% endif %}
+            {% if result.topups_discarded %}
+            <div><span>Topup in-flight terhapus</span><div class="val"><strong>{{ result.topups_discarded }}</strong> &mdash; QR yang sudah dibayar tapi belum dikredit ikut hangus</div></div>
+            {% endif %}
         </div>
         <div class="modal-actions">
             <button type="button" class="btn btn-primary" id="restoreLogoutBtn">Logout &amp; Clear Cache</button>
@@ -143,6 +146,7 @@
         <ul class="confirm-list">
             <li>Pengguna &amp; saldo</li>
             <li>Riwayat transaksi</li>
+            <li>Topup QRIS yang belum dibayar / belum dikredit &mdash; ikut terhapus</li>
             <li>Nomor XL</li>
             <li>Fee paket</li>
             <li>Pengaturan panel (QRIS API, Bot Telegram, jadwal auto backup, notif) &mdash; ikut isi backup; backup lama direset ke default</li>

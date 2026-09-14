@@ -3419,12 +3419,14 @@ async def admin_restore_upload(
 
     # 2. Wipe all existing data so the restore result is identical with the backup
     db.query(BalanceTransaction).delete(synchronize_session=False)
-    # Topup 'waiting/pending' DIPERTAHANKAN: backup tidak mengelola transaksi,
-    # dan menghapusnya membuat pembayaran in-flight (sudah dibayar user) tidak
-    # bisa dikredit karena check_payment butuh baris trx_id-nya.
-    db.query(TopupTransaction).filter(
-        TopupTransaction.status.notin_(("waiting", "pending"))
-    ).delete(synchronize_session=False)
+    # Clean wipe disengaja (mode: replace): SEMUA transaksi ikut terhapus,
+    # termasuk topup waiting/pending yang belum dibayar. QR yang sudah
+    # terlanjur dibayar user tapi belum dikredit akan hangus — jangan restore
+    # saat ada topup in-flight (jumlahnya dilaporkan di topups_discarded).
+    topups_discarded = db.query(TopupTransaction).filter(
+        TopupTransaction.status.in_(("waiting", "pending"))
+    ).count()
+    db.query(TopupTransaction).delete(synchronize_session=False)
     db.query(Balance).delete(synchronize_session=False)
     db.query(XLAccount).delete(synchronize_session=False)
     db.query(User).delete(synchronize_session=False)
@@ -3433,16 +3435,6 @@ async def admin_restore_upload(
     if isinstance(data.get("families"), dict):
         # Backup mengelola registry family → hasil restore identik dengan backup.
         db.query(XlFamily).delete(synchronize_session=False)
-    # Snapshot topup waiting/pending yang dipertahankan: user di-wipe lalu
-    # dibuat ulang → id baru bisa geser. Simpan (topup_id, old_user_id,
-    # username) sekarang untuk REMAP user_id setelah users ter-restore.
-    kept_topups_owner = [
-        (t.id, t.user_id,
-         str(getattr(db.query(User).filter(User.id == t.user_id).first(), "username", "") or ""))
-        for t in db.query(TopupTransaction).filter(
-            TopupTransaction.status.in_(("waiting", "pending"))
-        ).all()
-    ]
     db.expunge_all()
     with _token_lock:
         _XL_TOKEN_CACHE.clear()
@@ -3522,21 +3514,6 @@ async def admin_restore_upload(
         elif device_fp_ok:
             copy_shared_fp_to_user(u.username)
         users_restored += 1
-
-    # Remap user_id topup waiting/pending yang dipertahankan (id user baru
-    # bisa berbeda setelah wipe). Update by topup.id — uid lama bisa
-    # bertabrakan dengan uid baru milik user lain. Topup milik user yang
-    # tidak ada di backup dihapus — tidak ada yang bisa mengkreditnya.
-    topups_remapped = topups_dropped = 0
-    for tid, old_uid, uname in kept_topups_owner:
-        new_u = users_by_name.get(uname) if uname else None
-        if new_u is None or new_u.role != "user":
-            db.query(TopupTransaction).filter(TopupTransaction.id == tid).delete(synchronize_session=False)
-            topups_dropped += 1
-        else:
-            db.query(TopupTransaction).filter(TopupTransaction.id == tid).update(
-                {"user_id": new_u.id}, synchronize_session=False)
-            topups_remapped += 1
 
     xl_restored = xl_skipped = 0
     for a in valid_xl:
@@ -3626,6 +3603,7 @@ async def admin_restore_upload(
         "prices_restored": price_restored,
         "decoys_restored": decoys_restored,
         "families_restored": families_restored,
+        "topups_discarded": topups_discarded,
     }
     if valid_settings is not None:
         result["settings_applied"] = settings_applied
