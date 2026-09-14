@@ -142,7 +142,7 @@ def _num_env(name, default, cast=int):
     """Baca angka dari env; nilai sampah/kosong → default + peringatan jelas
     (bukan ValueError saat import yang bikin crash-loop)."""
     try:
-        return cast(os.getenv(name, ""))
+        return cast(os.getenv(name, default))
     except (TypeError, ValueError):
         print(f"[config] {name} tidak valid — pakai default {default}")
         return default
