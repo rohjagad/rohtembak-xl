@@ -188,6 +188,10 @@
                             <input type="number" name="display_price" value="{{ it.display if it.display is not none else '' }}" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
                         </label>
                         <label style="display:flex;flex-direction:column;gap:4px;">
+                            <span class="price-hint">Rewrite Price:</span>
+                            <input type="number" name="rewrite_price" value="{{ it.rewrite if it.rewrite is not none else '' }}" min="0" step="1" placeholder="Ikut API" class="form-control price-input" style="width:200px;" form="price-form-{{ sec.key }}-{{ it.number }}">
+                        </label>
+                        <label style="display:flex;flex-direction:column;gap:4px;">
                             <span class="price-hint">Fee QRIS / E-Wallet:</span>
                             <input type="number" name="fee_qris" value="{{ it.fee_qris }}" min="0" step="1" class="form-control price-input" style="width:100%;" title="Biaya saldo panel per transaksi QRIS / E-Wallet" form="price-form-{{ sec.key }}-{{ it.number }}">
                         </label>
