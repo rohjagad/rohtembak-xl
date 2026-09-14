@@ -6151,7 +6151,10 @@ def _fetch_pending_ewallet(active_xl, tokens=None, transactions=None):
         # OVO: tanpa deeplink — baris tetap tampil, tombol buka disembunyikan JS.
         st_detail = (detail.get("status") or "").upper()
         pay_st = (trx.get("payment_status") or "").upper()
-        expired = st_detail == "EXPIRED" or pay_st == "EXPIRED"
+        # Sama seperti QRIS: XL lama mengubah status (masih WAITING_FOR_PAYMENT
+        # dengan remaining_time 0) — anggap kedaluwarsa agar tidak "Pending" abadi.
+        remaining = int(detail.get("remaining_time") or 0)
+        expired = remaining <= 0 or st_detail == "EXPIRED" or pay_st == "EXPIRED"
         ewallet_txs.append(_pending_row(trx, detail, trx.get("code") or "", {
             "wallet_type": wallet_type,
             "deeplink": deeplink,
