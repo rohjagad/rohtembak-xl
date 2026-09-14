@@ -136,8 +136,8 @@ function showEwalletWindow(link) {
 }
 function closeEwalletWindow() {
   document.getElementById('ewallet-overlay').classList.remove('show');
-  // E-wallet overlay yang ditutup SETELAH pembayaran sukses bukan "tertutup tak sengaja".
-  if (paySucceeded) return;
+  // Selalu yakinkan pembeli: tautan yang belum dibayar tetap ada di Riwayat.
+  // ("Sukses" di sini artinya tautan berhasil dibuat, BUKAN sudah dibayar.)
   document.getElementById('ewalletClosedModal').classList.add('show');
 }
 function closeEwalletClosedModal() {
@@ -190,10 +190,9 @@ function payNow() {
           + '<span class="t-prompt">$</span> saldo terpotong : ' + (res.deducted != null ? Number(res.deducted).toLocaleString('id-ID') + ' IDR' : '-') + '\n'
           + '<span class="t-prompt">$</span> sisa saldo      : ' + (res.new_balance != null ? Number(res.new_balance).toLocaleString('id-ID') + ' IDR' : '-');
         if (res.deeplink) {
-          paySucceeded = true;
           showEwalletWindow(res.deeplink);
         }
-        if (res.qris_img) { paySucceeded = true; showQr(res.qris_img, res.qris_expires_ts || 0); }
+        if (res.qris_img) { showQr(res.qris_img, res.qris_expires_ts || 0); }
       } else {
         var out = res.terminal_output || '';
         box.innerHTML = '<span class="t-title">result</span><span class="t-prompt">$</span> <span class="t-err">GAGAL</span>\n'
@@ -228,7 +227,6 @@ function showQr(src, expires) {
 }
 var qrExpires = 0;
 var qrTimerInt = null;
-var paySucceeded = false;
 function tickQrTimer() {
   var el = document.getElementById('qr-timer');
   if (!el) return;
@@ -246,8 +244,7 @@ function closeQr() {
   document.getElementById('qr-overlay').classList.remove('show');
   if (qrTimerInt) clearInterval(qrTimerInt);
   qrTimerInt = null;
-  // QR yang ditutup SETELAH pembayaran sukses bukan "tertutup tak sengaja".
-  if (paySucceeded) return;
+  // Selalu yakinkan pembeli: QR yang belum dibayar tetap ada di Riwayat.
   document.getElementById('qrisClosedModal').classList.add('show');
 }
 function closeQrisClosedModal() {
