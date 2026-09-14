@@ -146,8 +146,8 @@ document.addEventListener('DOMContentLoaded', function () {
         <input type="number" name="fee_pulsa" value="{{ p.get('fee_pulsa', '') }}" min="0" step="1" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi pulsa (kosongkan untuk 0)">
       </label>
       <label>
-        <span class="price-hint">Biaya admin QRIS</span>
-        <input type="number" name="fee_qris" value="{{ p.get('fee_qris', '') }}" min="0" step="1" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS (kosongkan untuk 0)">
+        <span class="price-hint">Biaya admin QRIS / E-Wallet</span>
+        <input type="number" name="fee_qris" value="{{ p.get('fee_qris', '') }}" min="0" step="1" class="form-control" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS / E-Wallet (kosongkan untuk 0)">
       </label>
     </div>
     <button type="submit" class="btn btn-sm btn-outline" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
@@ -192,8 +192,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 <input type="number" name="fee_pulsa" value="{{ custom_buy.get('browse_fee_pulsa', '') }}" min="0" step="1" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi pulsa untuk browse manual">
             </label>
             <label>
-                <span class="lbl">Biaya admin QRIS</span>
-                <input type="number" name="fee_qris" value="{{ custom_buy.get('browse_fee_qris', '') }}" min="0" step="1" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS untuk browse manual">
+                <span class="lbl">Biaya admin QRIS / E-Wallet</span>
+                <input type="number" name="fee_qris" value="{{ custom_buy.get('browse_fee_qris', '') }}" min="0" step="1" class="form-control price-input" placeholder="Tidak ada" title="Biaya saldo panel per transaksi QRIS / E-Wallet untuk browse manual">
             </label>
         </div>
         <button type="submit" class="btn btn-sm btn-outline price-btn" style="color:#059669;border-color:#6ee7b7;">Simpan</button>
