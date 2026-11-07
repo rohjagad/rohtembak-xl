@@ -1,23 +1,20 @@
 services:
-  rohtembak:
+  rohtembak-xl-v1:
     # TIDAK AUTO-UPDATE: entrypoint hanya clone sekali; perubahan di GitHub
     # tidak masuk otomatis. Update manual:
-    #   docker exec rohtembak bash -c "cd /opt/rohtembak && git pull --ff-only"
-    #   docker restart rohtembak
+    #   docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak && git pull --ff-only"
+    #   docker restart rohtembak-xl-v1
     image: debian:12
-    container_name: rohtembak
-    hostname: rohtembak
+    container_name: rohtembak-xl-v1
+    hostname: rohtembak-xl-v1
     ports:
       - "8000:8000"
     environment:
       APP_PORT: 8000
       INSTALL_DIR: /opt/rohtembak
     volumes:
-      - rohtembak_data:/opt/rohtembak
+      - ./data:/opt/rohtembak/data:Z
       - ./entrypoint.sh:/usr/local/bin/entrypoint.sh:ro,Z
     restart: unless-stopped
     stop_grace_period: 30s
     entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]
-
-volumes:
-  rohtembak_data:
