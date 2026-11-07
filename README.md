@@ -41,6 +41,8 @@ docker compose up -d
 
 Buka `http://localhost:8600` — login `admin` / `admin`.
 
+> Compose memakai named volume `rohtembak-xl-v1-install` untuk code + venv + `.env`, dan bind mount `./data` untuk data runtime (DB + fingerprint).
+> Bootstrap (`entrypoint.sh`, apt, git clone, pip) berjalan sekali saat volume install masih kosong. Kalau bootstrap gagal, container tetap hidup dan error terlihat di `docker logs`.
 > Target deploy: Docker pada Debian 12 mutable (SELinux tidak aktif), jadi bind mount tidak memakai relabel `:Z`.
 > Jika suatu saat di-deploy di host SELinux enforcing (Fedora/Silverblue), tambahkan `:Z` pada bind mount di `docker-compose.yml`.
 
@@ -68,9 +70,11 @@ Swarm: `docker exec <container> bash -c "cd /opt/rohtembak-xl && git pull --ff-o
 > Repo ini private: pada deploy fresh, buat repo public sementara agar clone /
 > raw.githubusercontent bisa diakses, lalu kembalikan ke private setelah jalan.
 >
-> Docker Compose menyimpan data runtime di bind mount `./data` pada host.
+> Docker Compose memakai named volume `rohtembak-xl-v1-install` untuk install
+> (code/venv/.env) dan bind mount `./data` untuk data runtime.
 > Swarm memakai named volume `rohtembak-xl-v1-data` (`<stack>_rohtembak-xl-v1-data`),
 > jadi pindah compose ↔ swarm butuh copy data dulu.
+> Compose tidak butuh `entrypoint.sh` di host: script diunduh otomatis ke volume install.
 
 ## Konfigurasi
 
@@ -105,7 +109,13 @@ docker restart rohtembak-xl-v1
 
 # Cek port mapping (host 8600 -> container 8000)
 docker port rohtembak-xl-v1
+
+# Cek status/restart count
+docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}' rohtembak-xl-v1
 ```
+
+Kalau container `Up` tapi aplikasi belum jalan, cek pesan bootstrap di log
+(DNS ke `deb.debian.org`/`github.com`/`pypi.org`, jam server, atau disk penuh).
 
 Bare metal:
 

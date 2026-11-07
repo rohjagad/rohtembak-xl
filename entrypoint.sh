@@ -26,6 +26,16 @@ APP_PORT="${APP_PORT:-8000}"
 log()  { echo -e "\033[1;32m[entrypoint]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[entrypoint]\033[0m $*"; }
 
+# Bootstrap failure -> jangan exit (restart-loop). Biarkan container hidup
+# supaya error asli kelihatan di `docker logs`.
+fatal() {
+    warn "$*"
+    echo "[entrypoint] Bootstrap gagal; container sengaja dibiarkan hidup."
+    echo "[entrypoint] Cek: date -u | getent hosts github.com pypi.org deb.debian.org | df -h | uname -m"
+    echo "[entrypoint] Setelah diperbaiki: docker restart rohtembak-xl-v1"
+    sleep infinity
+}
+
 # Retry dengan backoff untuk langkah yang rawan blip jaringan (apt/pip/git).
 # PID 1 tidak boleh langsung mati gara-gara gangguan sesaat → restart-loop.
 retry() {
@@ -48,8 +58,8 @@ if ! command -v git >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 \
    || ! command -v curl >/dev/null 2>&1; then
     log "Installing system dependencies (git, python3-venv, curl)..."
     export DEBIAN_FRONTEND=noninteractive
-    retry apt-get update -y >/dev/null
-    retry apt-get install -y git python3 python3-venv python3-pip curl ca-certificates >/dev/null
+    retry apt-get update -y >/dev/null || fatal "apt-get update gagal (DNS/koneksi ke deb.debian.org?)"
+    retry apt-get install -y git python3 python3-venv python3-pip curl ca-certificates >/dev/null || fatal "apt-get install gagal (disk penuh?)"
 fi
 
 # --- 2. Source: clone once, NO auto-update --------------------------------------
@@ -64,8 +74,7 @@ if [ ! -f "${INSTALL_DIR}/main.py" ] || [ ! -d "${INSTALL_DIR}/.git" ]; then
     tmp="$(mktemp -d)"
     if ! retry git clone --depth 1 -b "${REPO_BRANCH}" "${REPO_URL}" "${tmp}/repo"; then
         rm -rf "${tmp}"
-        warn "Clone gagal (jaringan?). Tidak ada data yang disentuh — coba lagi nanti."
-        exit 1
+        fatal "git clone gagal (DNS/koneksi ke github.com?)"
     fi
     ENV_KEEP=""
     if [ -f "${INSTALL_DIR}/.env" ]; then
@@ -86,7 +95,7 @@ cd "${INSTALL_DIR}"
 NEED_PIP=0
 if [ ! -x "${INSTALL_DIR}/venv/bin/python" ]; then
     log "Creating virtualenv..."
-    python3 -m venv venv
+    python3 -m venv venv || fatal "gagal membuat virtualenv"
     NEED_PIP=1
 else
     STAMP=".venv-requirements.sha"
@@ -98,8 +107,8 @@ else
 fi
 if [ "${NEED_PIP}" -eq 1 ]; then
     log "Installing Python dependencies..."
-    retry venv/bin/pip install --upgrade pip --quiet
-    retry venv/bin/pip install -r requirements.txt --quiet
+    retry venv/bin/pip install --upgrade pip --quiet || fatal "pip upgrade gagal (DNS/koneksi ke pypi.org?)"
+    retry venv/bin/pip install -r requirements.txt --quiet || fatal "pip install gagal (disk penuh / wheel tidak tersedia?)"
     sha256sum requirements.txt | cut -d' ' -f1 > .venv-requirements.sha
 fi
 

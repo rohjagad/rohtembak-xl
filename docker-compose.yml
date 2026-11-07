@@ -1,9 +1,5 @@
 services:
   rohtembak-xl-v1:
-    # TIDAK AUTO-UPDATE: entrypoint hanya clone sekali; perubahan di GitHub
-    # tidak masuk otomatis. Update manual:
-    #   docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak-xl && git pull --ff-only"
-    #   docker restart rohtembak-xl-v1
     image: debian:12
     container_name: rohtembak-xl-v1
     hostname: rohtembak-xl-v1
@@ -13,9 +9,33 @@ services:
       APP_PORT: 8000
       INSTALL_DIR: /opt/rohtembak-xl
     volumes:
-      # Data runtime (SQLite DB + fingerprint) tersimpan di ./data pada host.
+      # Code + venv + .env persisten, sama seperti volume install di stack lama.
+      - rohtembak-xl-v1-install:/opt/rohtembak-xl
+      # Data runtime (SQLite DB + fingerprint) tetap di ./data pada host.
       - ./data:/opt/rohtembak-xl/data
-      - ./entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
     restart: unless-stopped
     stop_grace_period: 30s
-    entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        BOOTSTRAP="/opt/rohtembak-xl/entrypoint.sh"
+        if [ ! -s "$$BOOTSTRAP" ]; then
+          if ! command -v curl >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            if ! apt-get update -y >/dev/null || ! apt-get install -y curl ca-certificates >/dev/null; then
+              echo "[bootstrap] Gagal install curl. Cek DNS/koneksi ke deb.debian.org."
+              sleep infinity
+            fi
+          fi
+          echo "[bootstrap] Downloading entrypoint.sh..."
+          if ! curl -fsSL https://raw.githubusercontent.com/rohjagad/rohtembak-xl/main/entrypoint.sh -o "$$BOOTSTRAP"; then
+            echo "[bootstrap] Gagal download entrypoint.sh. Cek DNS/koneksi ke github.com."
+            sleep infinity
+          fi
+        fi
+        exec /bin/bash "$$BOOTSTRAP"
+
+volumes:
+  rohtembak-xl-v1-install:
