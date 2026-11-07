@@ -9,18 +9,18 @@ set -euo pipefail
 #
 # TIDAK AUTO-UPDATE: perubahan di GitHub tidak otomatis masuk ke container.
 # Update manual:
-#   docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak && git pull --ff-only"
+#   docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak-xl && git pull --ff-only"
 #   docker restart rohtembak-xl-v1
 #
 # Environment:
-#   INSTALL_DIR          target dir                     (default /opt/rohtembak)
+#   INSTALL_DIR          target dir                     (default /opt/rohtembak-xl)
 #   APP_PORT             uvicorn port                   (default 8000)
 #   ROHTEMBAK_ENV_FILE   optional .env to copy over     (path inside container)
 # =============================================================================
 
 REPO_URL="https://github.com/rohjagad/rohtembak-xl"
 REPO_BRANCH="main"
-INSTALL_DIR="${INSTALL_DIR:-/opt/rohtembak}"
+INSTALL_DIR="${INSTALL_DIR:-/opt/rohtembak-xl}"
 APP_PORT="${APP_PORT:-8000}"
 
 log()  { echo -e "\033[1;32m[entrypoint]\033[0m $*"; }
@@ -114,8 +114,8 @@ fi
 # --- 5. Wait for real secrets (no crash-loop) ------------------------------------
 if ! grep -qE "^BASE_CIAM_URL=.+" "${INSTALL_DIR}/.env" 2>/dev/null; then
     echo "[entrypoint] .env belum berisi secret (BASE_CIAM_URL kosong)."
-    echo "[entrypoint] Letakkan .env asli, mis.: docker cp .env rohtembak:/opt/rohtembak/.env"
-    echo "[entrypoint] lalu: docker restart rohtembak"
+    echo "[entrypoint] Letakkan .env asli, mis.: docker cp .env rohtembak-xl-v1:/opt/rohtembak-xl/.env"
+    echo "[entrypoint] lalu: docker restart rohtembak-xl-v1"
     echo "[entrypoint] Menunggu .env... (container tetap hidup, bukan crash-loop)"
     sleep infinity
 fi

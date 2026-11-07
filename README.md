@@ -49,15 +49,15 @@ Buka `http://localhost:8600` — login `admin` / `admin`.
 Perubahan di GitHub TIDAK masuk otomatis. Update manual setelah `git push`:
 
 ```bash
-docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak && git pull --ff-only"
+docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak-xl && git pull --ff-only"
 docker restart rohtembak-xl-v1
 ```
 
-Swarm: `docker exec <container> bash -c "cd /opt/rohtembak && git pull --ff-only"` lalu `docker service update --force rohtembak-xl`.
+Swarm: `docker exec <container> bash -c "cd /opt/rohtembak-xl && git pull --ff-only"` lalu `docker service update --force rohtembak-xl-v1`.
 
 > Repo private: set remote ber-token SEKALI agar `git pull` tetap jalan
 > setelah repo dikembalikan private:
-> `docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak && git remote set-url origin https://<PAT>@github.com/rohjagad/rohtembak-xl"`
+> `docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak-xl && git remote set-url origin https://<PAT>@github.com/rohjagad/rohtembak-xl"`
 
 ## Deployment notes
 
@@ -69,7 +69,7 @@ Swarm: `docker exec <container> bash -c "cd /opt/rohtembak && git pull --ff-only
 > raw.githubusercontent bisa diakses, lalu kembalikan ke private setelah jalan.
 >
 > Docker Compose menyimpan data runtime di bind mount `./data` pada host.
-> Swarm memakai named volume `rohtembak_data` (`<stack>_rohtembak_data`),
+> Swarm memakai named volume `rohtembak-xl-v1-data` (`<stack>_rohtembak-xl-v1-data`),
 > jadi pindah compose ↔ swarm butuh copy data dulu.
 
 ## Konfigurasi
@@ -111,13 +111,13 @@ Bare metal:
 
 ```bash
 # Check uvicorn logs
-tail -f /tmp/rohtembak.log
+tail -f /tmp/rohtembak-xl.log
 
 # Stop app
 kill $(lsof -ti :8000)
 
 # Restart app
-cd /opt/rohtembak && setsid venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 > /tmp/rohtembak.log 2>&1 &
+cd /opt/rohtembak-xl && setsid venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 > /tmp/rohtembak-xl.log 2>&1 &
 
 # Check which process owns port 8000
 lsof -i :8000

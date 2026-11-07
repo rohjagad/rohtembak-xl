@@ -13,7 +13,7 @@ set -euo pipefail
 # It can be run from any working directory (e.g. your home dir) - no need
 # to cd into the app folder first:
 #
-#   docker exec -it rohtembak bash /opt/rohtembak/reset-admin-credentials.sh
+#   docker exec -it rohtembak-xl-v1 bash /opt/rohtembak-xl/reset-admin-credentials.sh
 #   # or, if you copied it elsewhere:
 #   sudo bash ~/reset-admin-credentials.sh
 #
@@ -24,7 +24,7 @@ set -euo pipefail
 # User data is NOT touched (users, balances, XL accounts, transactions).
 # =============================================================================
 
-INSTALL_DIR="/opt/rohtembak"
+INSTALL_DIR="/opt/rohtembak-xl"
 VENV_PYTHON="${INSTALL_DIR}/venv/bin/python"
 
 if [[ ! -x "${VENV_PYTHON}" ]]; then

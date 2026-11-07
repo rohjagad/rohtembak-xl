@@ -1,30 +1,30 @@
 services:
-  rohtembak-xl:
+  rohtembak-xl-v1:
     # PRODUCTION (branch main). Repo private: pada deploy fresh, buat repo
     # public sementara agar clone / curl raw.githubusercontent berhasil,
     # lalu kembalikan ke private setelah stack jalan. Untuk update saat repo
     # sudah private, set remote ber-token SEKALI di dalam container:
-    #   docker exec <container> bash -c     #     "cd /opt/rohtembak && git remote set-url origin https://<PAT>@github.com/rohjagad/rohtembak-xl"
+    #   docker exec <container> bash -c     #     "cd /opt/rohtembak-xl && git remote set-url origin https://<PAT>@github.com/rohjagad/rohtembak-xl"
     # setelah itu `git pull --ff-only` tetap jalan tanpa repo public.
     #
     # TIDAK AUTO-UPDATE: app hanya di-clone sekali; perubahan di GitHub tidak
     # masuk otomatis. Update manual:
-    #   docker exec <container> bash -c "cd /opt/rohtembak && git pull --ff-only"
-    #   docker service update --force rohtembak-xl
+    #   docker exec <container> bash -c "cd /opt/rohtembak-xl && git pull --ff-only"
+    #   docker service update --force rohtembak-xl-v1
     image: debian:12
     environment:
       APP_PORT: 8000
-      INSTALL_DIR: /opt/rohtembak
+      INSTALL_DIR: /opt/rohtembak-xl
     volumes:
-      - rohtembak_data:/opt/rohtembak
+      - rohtembak-xl-v1-data:/opt/rohtembak-xl
     networks:
       - common-overlay
-    entrypoint: ["/bin/bash", "-c", "set -e; if ! command -v curl >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null; apt-get install -y curl >/dev/null; fi; if [ ! -f /opt/rohtembak/entrypoint.sh ]; then if ! curl -fsSL https://raw.githubusercontent.com/rohjagad/rohtembak-xl/main/entrypoint.sh -o /opt/rohtembak/entrypoint.sh; then echo '[bootstrap] volume /opt/rohtembak kosong dan entrypoint.sh gagal diambil dari GitHub (repo private?). Provision ulang saat repo publik, atau salin entrypoint.sh ke volume.'; sleep infinity; fi; fi; cp /opt/rohtembak/entrypoint.sh /usr/local/bin/entrypoint.sh; chmod +x /usr/local/bin/entrypoint.sh; exec /usr/local/bin/entrypoint.sh"]
+    entrypoint: ["/bin/bash", "-c", "set -e; if ! command -v curl >/dev/null 2>&1; then export DEBIAN_FRONTEND=noninteractive; apt-get update -y >/dev/null; apt-get install -y curl >/dev/null; fi; if [ ! -f /opt/rohtembak-xl/entrypoint.sh ]; then if ! curl -fsSL https://raw.githubusercontent.com/rohjagad/rohtembak-xl/main/entrypoint.sh -o /opt/rohtembak-xl/entrypoint.sh; then echo '[bootstrap] volume /opt/rohtembak-xl kosong dan entrypoint.sh gagal diambil dari GitHub (repo private?). Provision ulang saat repo publik, atau salin entrypoint.sh ke volume.'; sleep infinity; fi; fi; cp /opt/rohtembak-xl/entrypoint.sh /usr/local/bin/entrypoint.sh; chmod +x /usr/local/bin/entrypoint.sh; exec /usr/local/bin/entrypoint.sh"]
     deploy:
       replicas: 1
       placement:
         constraints:
-          # Volume rohtembak_data bersifat LOKAL per-node — constraint ini
+          # Volume rohtembak-xl-v1-data bersifat LOKAL per-node — constraint ini
           # menjaga service & datanya selalu di satu node yang sama.
           - node.hostname == stb3
       restart_policy:
@@ -36,4 +36,4 @@ networks:
     external: true
 
 volumes:
-  rohtembak_data:
+  rohtembak-xl-v1-data:

@@ -2,7 +2,7 @@ services:
   rohtembak-xl-v1:
     # TIDAK AUTO-UPDATE: entrypoint hanya clone sekali; perubahan di GitHub
     # tidak masuk otomatis. Update manual:
-    #   docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak && git pull --ff-only"
+    #   docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak-xl && git pull --ff-only"
     #   docker restart rohtembak-xl-v1
     image: debian:12
     container_name: rohtembak-xl-v1
@@ -11,10 +11,10 @@ services:
       - "8600:8000"
     environment:
       APP_PORT: 8000
-      INSTALL_DIR: /opt/rohtembak
+      INSTALL_DIR: /opt/rohtembak-xl
     volumes:
       # Data runtime (SQLite DB + fingerprint) tersimpan di ./data pada host.
-      - ./data:/opt/rohtembak/data
+      - ./data:/opt/rohtembak-xl/data
       - ./entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
     restart: unless-stopped
     stop_grace_period: 30s
