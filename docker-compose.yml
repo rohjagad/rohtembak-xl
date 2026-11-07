@@ -13,8 +13,9 @@ services:
       APP_PORT: 8000
       INSTALL_DIR: /opt/rohtembak
     volumes:
-      - ./data:/opt/rohtembak/data:Z
-      - ./entrypoint.sh:/usr/local/bin/entrypoint.sh:ro,Z
+      # Data runtime (SQLite DB + fingerprint) tersimpan di ./data pada host.
+      - ./data:/opt/rohtembak/data
+      - ./entrypoint.sh:/usr/local/bin/entrypoint.sh:ro
     restart: unless-stopped
     stop_grace_period: 30s
     entrypoint: ["/bin/bash", "/usr/local/bin/entrypoint.sh"]

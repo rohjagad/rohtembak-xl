@@ -24,8 +24,9 @@ Web UI untuk mengelola akun XL / paket XL (beli paket, info paket, riwayat, pemb
 ├── templates/            # Jinja2 templates
 ├── static/               # CSS / JS
 ├── requirements.txt
-├── entrypoint.sh             # PRODUCTION Docker entrypoint (branch main)
-├── docker-compose.yml    # production container
+├── entrypoint.sh         # PRODUCTION Docker entrypoint (branch main)
+├── docker-compose.yml    # production container (Docker, Debian 12)
+├── data/                 # runtime DB + fingerprint (gitignored, dibuat otomatis)
 ├── .env                  # konfigurasi kredensial XL API (sudah terisi)
 └── .env.example          # template konfigurasi
 ```
@@ -38,25 +39,25 @@ cd rohtembak-xl
 docker compose up -d
 ```
 
-Buka `http://localhost:8000` — login `admin` / `admin`.
+Buka `http://localhost:8600` — login `admin` / `admin`.
 
-> Pada host cgroup v2, jika container gagal start, tambahkan `cgroupns: host` pada service di `docker-compose.yml`.
-> Pada host SELinux enforcing (Fedora/Silverblue), bind mount entrypoint sudah memakai relabel `:Z` — jangan dihapus.
+> Target deploy: Docker pada Debian 12 mutable (SELinux tidak aktif), jadi bind mount tidak memakai relabel `:Z`.
+> Jika suatu saat di-deploy di host SELinux enforcing (Fedora/Silverblue), tambahkan `:Z` pada bind mount di `docker-compose.yml`.
 
 ## Update aplikasi
 
 Perubahan di GitHub TIDAK masuk otomatis. Update manual setelah `git push`:
 
 ```bash
-docker exec rohtembak bash -c "cd /opt/rohtembak && git pull --ff-only"
-docker restart rohtembak
+docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak && git pull --ff-only"
+docker restart rohtembak-xl-v1
 ```
 
 Swarm: `docker exec <container> bash -c "cd /opt/rohtembak && git pull --ff-only"` lalu `docker service update --force rohtembak-xl`.
 
 > Repo private: set remote ber-token SEKALI agar `git pull` tetap jalan
 > setelah repo dikembalikan private:
-> `docker exec rohtembak bash -c "cd /opt/rohtembak && git remote set-url origin https://<PAT>@github.com/rohjagad/rohtembak-xl"`
+> `docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak && git remote set-url origin https://<PAT>@github.com/rohjagad/rohtembak-xl"`
 
 ## Deployment notes
 
@@ -67,9 +68,9 @@ Swarm: `docker exec <container> bash -c "cd /opt/rohtembak && git pull --ff-only
 > Repo ini private: pada deploy fresh, buat repo public sementara agar clone /
 > raw.githubusercontent bisa diakses, lalu kembalikan ke private setelah jalan.
 >
-> Docker Compose vs Swarm: volume `rohtembak_data` dipakai dengan prefix
-> berbeda (compose: `rohtembak_rohtembak_data`, stack: `<stack>_rohtembak_data`).
-> Pindah dari compose ke swarm = data terlihat kosong — export/import volume dulu.
+> Docker Compose menyimpan data runtime di bind mount `./data` pada host.
+> Swarm memakai named volume `rohtembak_data` (`<stack>_rohtembak_data`),
+> jadi pindah compose ↔ swarm butuh copy data dulu.
 
 ## Konfigurasi
 
@@ -92,6 +93,21 @@ Yang TIDAK ikut di-commit:
 - Login nomor XL dilakukan via menu panel (input nomor + OTP) dan tersimpan hanya di database lokal.
 
 ## Troubleshooting
+
+Docker (target deploy):
+
+```bash
+# Container logs
+docker logs -f rohtembak-xl-v1
+
+# Restart container
+docker restart rohtembak-xl-v1
+
+# Cek port mapping (host 8600 -> container 8000)
+docker port rohtembak-xl-v1
+```
+
+Bare metal:
 
 ```bash
 # Check uvicorn logs

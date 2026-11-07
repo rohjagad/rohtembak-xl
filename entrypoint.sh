@@ -9,8 +9,8 @@ set -euo pipefail
 #
 # TIDAK AUTO-UPDATE: perubahan di GitHub tidak otomatis masuk ke container.
 # Update manual:
-#   podman exec rohtembak bash -c "cd /opt/rohtembak && git pull --ff-only"
-#   podman restart rohtembak
+#   docker exec rohtembak-xl-v1 bash -c "cd /opt/rohtembak && git pull --ff-only"
+#   docker restart rohtembak-xl-v1
 #
 # Environment:
 #   INSTALL_DIR          target dir                     (default /opt/rohtembak)
