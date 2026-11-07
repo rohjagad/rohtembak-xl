@@ -26,6 +26,7 @@ Web UI untuk mengelola akun XL / paket XL (beli paket, info paket, riwayat, pemb
 ├── requirements.txt
 ├── entrypoint.sh         # PRODUCTION Docker entrypoint (branch main)
 ├── docker-compose.yml    # production container (Docker, Debian 12)
+├── install/              # code + venv + .env (gitignored, dibuat otomatis)
 ├── data/                 # runtime DB + fingerprint (gitignored, dibuat otomatis)
 ├── .env                  # konfigurasi kredensial XL API (sudah terisi)
 └── .env.example          # template konfigurasi
@@ -41,8 +42,8 @@ docker compose up -d
 
 Buka `http://localhost:8600` — login `admin` / `admin`.
 
-> Compose memakai named volume `rohtembak-xl-v1-install` untuk code + venv + `.env`, dan bind mount `./data` untuk data runtime (DB + fingerprint).
-> Bootstrap (`entrypoint.sh`, apt, git clone, pip) berjalan sekali saat volume install masih kosong. Kalau bootstrap gagal, container tetap hidup dan error terlihat di `docker logs`.
+> Compose menyimpan semuanya di folder project: `./install` (code + venv + `.env`) dan `./data` (DB + fingerprint).
+> Bootstrap (`entrypoint.sh`, apt, git clone, pip) berjalan sekali saat `./install` masih kosong. Kalau bootstrap gagal, container tetap hidup dan error terlihat di `docker logs`.
 > Target deploy: Docker pada Debian 12 mutable (SELinux tidak aktif), jadi bind mount tidak memakai relabel `:Z`.
 > Jika suatu saat di-deploy di host SELinux enforcing (Fedora/Silverblue), tambahkan `:Z` pada bind mount di `docker-compose.yml`.
 
@@ -70,11 +71,11 @@ Swarm: `docker exec <container> bash -c "cd /opt/rohtembak-xl && git pull --ff-o
 > Repo ini private: pada deploy fresh, buat repo public sementara agar clone /
 > raw.githubusercontent bisa diakses, lalu kembalikan ke private setelah jalan.
 >
-> Docker Compose memakai named volume `rohtembak-xl-v1-install` untuk install
-> (code/venv/.env) dan bind mount `./data` untuk data runtime.
-> Swarm memakai named volume `rohtembak-xl-v1-data` (`<stack>_rohtembak-xl-v1-data`),
-> jadi pindah compose ↔ swarm butuh copy data dulu.
-> Compose tidak butuh `entrypoint.sh` di host: script diunduh otomatis ke volume install.
+> Docker Compose menyimpan install di `./install` dan data runtime di `./data`
+> (keduanya di folder project, gitignored). Swarm memakai named volume
+> `rohtembak-xl-v1-data` (`<stack>_rohtembak-xl-v1-data`), jadi pindah
+> compose ↔ swarm butuh copy data dulu.
+> Compose tidak butuh `entrypoint.sh` di host: script diunduh otomatis ke `./install`.
 
 ## Konfigurasi
 

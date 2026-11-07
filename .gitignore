@@ -17,6 +17,7 @@ ax.fp
 
 # Runtime data / databases
 data/
+install/
 *.db
 *.db-journal
 *.db-wal

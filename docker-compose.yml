@@ -9,9 +9,9 @@ services:
       APP_PORT: 8000
       INSTALL_DIR: /opt/rohtembak-xl
     volumes:
-      # Code + venv + .env persisten, sama seperti volume install di stack lama.
-      - rohtembak-xl-v1-install:/opt/rohtembak-xl
-      # Data runtime (SQLite DB + fingerprint) tetap di ./data pada host.
+      # Install (code + venv + .env) disimpan di ./install pada host.
+      - ./install:/opt/rohtembak-xl
+      # Data runtime (SQLite DB + fingerprint) disimpan di ./data pada host.
       - ./data:/opt/rohtembak-xl/data
     restart: unless-stopped
     stop_grace_period: 30s
@@ -36,6 +36,3 @@ services:
           fi
         fi
         exec /bin/bash "$$BOOTSTRAP"
-
-volumes:
-  rohtembak-xl-v1-install:
